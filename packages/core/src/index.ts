@@ -70,7 +70,12 @@ export type {
 } from "./plugin/contributions.js";
 export { hasLibraryContributions, isLibraryPackage, libraryParts } from "./plugin/kinds.js";
 export type { LibraryParts } from "./plugin/kinds.js";
-export { MAX_PLUGIN_ICON_BYTES, isSafeIconSvg, readPluginIcon } from "./plugin/icon.js";
+export {
+  MAX_PLUGIN_ICON_BYTES,
+  isSafeIconSvg,
+  readPluginIcon,
+  svgFromRoot,
+} from "./plugin/icon.js";
 export {
   USER_PROMPT_EVERY_PROMPT_SINCE,
   comparePluginVersions,

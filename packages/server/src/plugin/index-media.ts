@@ -15,7 +15,12 @@
  * Reads are keyed by URL, so two entries that share an asset read it once, and a moved
  * URL reads again rather than serving the old bytes under the new address.
  */
-import { isSafeIconSvg, MAX_PLUGIN_ICON_BYTES, userAgent } from "@prismshadow/penguin-core";
+import {
+  isSafeIconSvg,
+  MAX_PLUGIN_ICON_BYTES,
+  svgFromRoot,
+  userAgent,
+} from "@prismshadow/penguin-core";
 import type { PluginIndexEntry } from "../api/types.js";
 
 const READ_TIMEOUT_MS = 30_000;
@@ -68,7 +73,12 @@ export function indexMedia({ fetchImpl = fetch }: { fetchImpl?: typeof fetch } =
     if (Number.isFinite(size) && size > max) return { kind: "none" };
     const text = await res.text().catch(() => null);
     if (text === null || text.length > max) return { kind: "none" };
-    if (kind === "icon" && !isSafeIconSvg(text)) return { kind: "none" };
+    // The Web App inlines only markup that begins at `<svg`, so an icon fetched over a URL is
+    // normalized to its root element the same way a package's own icon.svg is.
+    if (kind === "icon") {
+      if (!isSafeIconSvg(text)) return { kind: "none" };
+      return { kind, text: svgFromRoot(text) };
+    }
     return { kind, text };
   }
 

@@ -34,7 +34,7 @@ const UNSAFE_SVG: readonly RegExp[] = [
 ];
 
 /** An SVG's text from its root element on: no byte-order mark, XML declaration or whitespace before `<svg`. */
-function svgFromRoot(text: string): string {
+export function svgFromRoot(text: string): string {
   return text.replace(/^﻿/, "").replace(/^\s*(?:<\?xml[^>]*\?>\s*)?/i, "");
 }
 

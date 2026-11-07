@@ -958,6 +958,27 @@ describe("the route's own merge", () => {
     }
   });
 
+  it("normalizes a URL-served icon that opens with an XML declaration to its <svg root", async () => {
+    const ICON = "https://assets.example/published/icon.svg";
+    const SVG =
+      '<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0"/></svg>';
+    const remote = fakeFetch((call) => {
+      if (call.url === ICON) return new Response(SVG);
+      return jsonResponse([{ ...published, icon: ICON }]);
+    });
+    const routes = pluginRegistryRoutes({
+      registries: [stubRegistry("published", [{ ...published, icon: ICON }]).registry],
+      fetchImpl: remote.fetch,
+    });
+    await routes.request("/");
+    const second = (await (await routes.request("/")).json()) as PluginIndexResponse;
+    // The Web App inlines only markup that begins at `<svg`; the declaration is left behind
+    // the same way a package's own icon.svg is, so the URL-served icon still draws.
+    expect(second.plugins.find((entry) => entry.name === published.name)!.icon).toBe(
+      '<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0"/></svg>',
+    );
+  });
+
   it("serves a remote entry's readme from the URL its row names", async () => {
     const README = "https://assets.example/published/README.md";
     const text = "# Published plugin\n\nIts own long-form readme.";

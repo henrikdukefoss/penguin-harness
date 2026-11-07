@@ -65,12 +65,14 @@ describe("sanitizeSkillIcon", () => {
     expect(sanitizeSkillIcon(icon)).toBe(icon);
   });
 
-  it("a data:image/png URI passes; other data URIs and malformed ones do not", () => {
-    const uri = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==";
-    expect(sanitizeSkillIcon(uri)).toBe(uri);
-    expect(sanitizeSkillIcon("data:image/svg+xml;base64,PHN2Zy8+")).toBeNull();
-    expect(sanitizeSkillIcon("data:text/html;base64,PHNjcmlwdD4=")).toBeNull();
-    expect(sanitizeSkillIcon("data:image/png;base64,not base64!!")).toBeNull();
-    expect(sanitizeSkillIcon("data:image/png,notbase64shape")).toBeNull();
+  it("a picture path on this server passes; other shapes do not", () => {
+    const path = "/api/plugins/registry/icon?name=%40penguinharness%2Flanguage-typst";
+    expect(sanitizeSkillIcon(path)).toBe(path);
+    expect(sanitizeSkillIcon("/api/plugins/registry/icon?name=x<script>")).toBeNull();
+    expect(sanitizeSkillIcon("/api/plugins/registry/icon extra")).toBeNull();
+    expect(sanitizeSkillIcon("https://assets.example/p/icon.png")).toBeNull();
+    expect(sanitizeSkillIcon("//assets.example/p/icon.png")).toBeNull();
+    expect(sanitizeSkillIcon("http://assets.example/p/icon.png")).toBeNull();
+    expect(sanitizeSkillIcon("data:image/png;base64,iVBORw0KGgo=")).toBeNull();
   });
 });

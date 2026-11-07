@@ -285,6 +285,7 @@ export function PluginDetailSections({
           fallback={ICONS.puzzle}
           size={40}
           glyph={22}
+          unframed
         />
         <div className="min-w-0 flex-1">
           {packageName !== undefined && (
@@ -514,20 +515,23 @@ function PackageDetailsLine({ details }: { details: PluginDetails }) {
 /**
  * The README the About section shows: a server module's from the registry route (read from the
  * package on this server, so one not here says so without asking), a library plugin's from the
- * library route, where a 404 means it ships none.
+ * library route, where a 404 means it ships none. An index entry that is not installed here
+ * still shows its README when the entry names one — the registry route reads the URL the row
+ * carries — so the dialog describes the plugin before anyone installs it.
  */
 function usePluginReadme(row: PluginRow): ReadmeState {
   const part = row.module;
   const here = part === undefined || moduleOnThisServer(part);
+  const namesReadme = part?.entry?.readme !== undefined;
   const [state, setState] = useState<ReadmeState>(
-    here ? { kind: "loading" } : { kind: "after-install" },
+    here || namesReadme ? { kind: "loading" } : { kind: "after-install" },
   );
   const specifier = part?.specifier;
   const name = row.library?.name;
   useEffect(() => {
     // Installing or removing from the dialog's own footer moves the package on or off this
     // server while the dialog is open.
-    if (!here) {
+    if (!here && !namesReadme) {
       setState({ kind: "after-install" });
       return;
     }
@@ -544,7 +548,9 @@ function usePluginReadme(row: PluginRow): ReadmeState {
                 throw e;
               },
             )
-          : Promise.resolve(null);
+          : namesReadme
+            ? getPluginReadme(row.name).then((res) => res.readme)
+            : Promise.resolve(null);
     read.then(
       (text) => {
         if (!cancelled) setState(text === null ? { kind: "none" } : { kind: "text", text });
@@ -557,7 +563,7 @@ function usePluginReadme(row: PluginRow): ReadmeState {
     return () => {
       cancelled = true;
     };
-  }, [here, specifier, name]);
+  }, [here, namesReadme, specifier, name, row.name]);
   return state;
 }
 

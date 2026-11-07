@@ -70,11 +70,12 @@ export function SkillIcon({
   // `innerHTML` whenever it differs, so a literal in the JSX rebuilds the markup on every render
   // (see test/inner-html-stability.test.ts).
   const markup = useMemo(
-    () => (safe && !safe.startsWith("data:") ? { __html: safe } : undefined),
+    () => (safe && !safe.startsWith("/") ? { __html: safe } : undefined),
     [safe],
   );
-  if (safe?.startsWith("data:image/")) {
-    // A PNG icon arrives as a data URI: an image, not markup — drawn by an img, never inlined.
+  if (safe?.startsWith("/")) {
+    // A picture is a path on this server, not markup: loaded by the page same-origin, never
+    // inlined and never fetched from the outside.
     return (
       <img
         src={safe}
@@ -106,6 +107,7 @@ export function SkillTile({
   fallback = BOOK_ICON,
   size = 36,
   glyph = 20,
+  unframed = false,
 }: {
   icon?: string;
   /** Names the tile's color. */
@@ -116,7 +118,16 @@ export function SkillTile({
   size?: number;
   /** Icon edge in px. */
   glyph?: number;
+  /**
+   * The icon stands alone, unframed, at the tile's edge — the plugin pages' opt-in, where a
+   * card's art is the mark and a tinted square around it reads as a frame. Rows and lists
+   * keep the tile: every mark in one tinted square is what those surfaces are.
+   */
+  unframed?: boolean;
 }) {
+  if (unframed && sanitizeSkillIcon(icon) !== null) {
+    return <SkillIcon icon={icon} fallback={fallback} size={size} />;
+  }
   return (
     // ui-glass with the tile anatomy: a theme may frost the square in its own hue (the palette
     // colour's ink is the hue); without a recipe the tinted square stays as it is.

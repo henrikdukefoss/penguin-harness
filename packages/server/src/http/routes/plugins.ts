@@ -416,16 +416,20 @@ export function pluginRegistryRoutes(options: PluginRoutesOptions = {}): Hono<Ap
     // row says, so an installed package's card shows its icon and both
     // languages even where its index row carries neither.
     const here = bases();
-    // An entry that is not here draws its icon from the `https://` URL its row names: what is
-    // in hand fills the card at once, one still out is started and answers on a later load.
+    // An entry that is not here draws its icon from the `https://` URL its row names: what
+    // is in hand fills the card at once — the safe SVG text, or a path on this server the
+    // page loads the picture from (the bytes were read here; the page never reaches the
+    // outside for an icon) — one still out answers on a later load.
     media.hydrate(entries);
     const plugins = await Promise.all(
       entries.map(async (entry) => {
         const display = await localPluginDisplay(entry.name, here);
         if (display.icon === undefined && entry.icon?.startsWith("https://")) {
-          // The row's icon is a location, not art: the page draws the fetched SVG once it
-          // is in hand, and none until then — never the URL itself.
-          display.icon = media.inHandIcon(entry);
+          if (media.inHandImage(entry) !== undefined) {
+            display.icon = `/api/plugins/registry/icon?name=${encodeURIComponent(entry.name)}`;
+          } else {
+            display.icon = media.inHandIcon(entry);
+          }
         }
         return { ...entry, ...display };
       }),
@@ -471,6 +475,33 @@ export function pluginRegistryRoutes(options: PluginRoutesOptions = {}): Hono<Ap
     }
     const body: PluginReadmeResponse = { name, readme: null };
     return c.json(body);
+  });
+  // The picture an index entry names, served from this server: the listing hands the page a
+  // path here, and the page loads the image same-origin — the fetch to the outside happened
+  // in index-media, the bytes never pass through the browser's own connection. The same
+  // entry rule as the readme, and the same newest-version pick.
+  app.get("/icon", async (c) => {
+    const name = c.req.query("name");
+    if (name === undefined || name === "") {
+      return c.json({ error: { code: "bad_request", message: "name is required" } }, 400);
+    }
+    const { entries } = await listing();
+    if (!PACKAGE_NAME.test(name) || !entries.some((e) => e.name === name)) {
+      return c.json({ error: { code: "not_found", message: "no such plugin" } }, 404);
+    }
+    const newest = entries
+      .filter((e) => e.name === name)
+      .reduce<PluginIndexEntry | null>(
+        (a, b) => (a === null || compareVersions(b.version, a.version) > 0 ? b : a),
+        null,
+      );
+    const image = newest === null ? undefined : media.inHandImage(newest);
+    if (image === undefined) {
+      return c.json({ error: { code: "not_found", message: "no icon in hand" } }, 404);
+    }
+    return c.body(image.bytes as unknown as Uint8Array<ArrayBuffer>, 200, {
+      "content-type": image.type,
+    });
   });
   // A listed package on this server as a zip, for another server to import: the same listing
   // rule as the readme, and only what is here — the package as npm installed or shipped it.

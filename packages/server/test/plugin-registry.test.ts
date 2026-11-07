@@ -979,12 +979,11 @@ describe("the route's own merge", () => {
     );
   });
 
-  it("serves a URL-named icon.png as a data URI the Web App draws as an image", async () => {
+  it("serves a row's image icon at a path on this server, and the picture itself from that path", async () => {
     const ICON = "https://assets.example/published/icon.png";
-    // A minimal PNG: the 8-byte signature the reader keys on.
-    const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
     const remote = fakeFetch((call) => {
-      if (call.url === ICON) return new Response(PNG);
+      if (call.url === ICON) return new Response(PNG, { headers: { "content-type": "image/png" } });
       return jsonResponse([{ ...published, icon: ICON }]);
     });
     const routes = pluginRegistryRoutes({
@@ -993,9 +992,33 @@ describe("the route's own merge", () => {
     });
     await routes.request("/");
     const second = (await (await routes.request("/")).json()) as PluginIndexResponse;
-    expect(second.plugins.find((entry) => entry.name === published.name)!.icon).toBe(
-      `data:image/png;base64,${Buffer.from(PNG).toString("base64")}`,
-    );
+    const expected = `/api/plugins/registry/icon?name=${encodeURIComponent(published.name)}`;
+    expect(second.plugins.find((entry) => entry.name === published.name)!.icon).toBe(expected);
+    // The path the row names answers with the picture's bytes and its type, same-origin.
+    const res = await routes.request(`/icon?name=${encodeURIComponent(published.name)}`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/png");
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(PNG);
+    // An entry whose icon read ended in nothing: 404, like a name the listing does not carry.
+    const miss = await routes.request("/icon?name=no-such-plugin");
+    expect(miss.status).toBe(404);
+  });
+
+  it("inlines a row's icon whose URL serves image/svg+xml, read for its safe text", async () => {
+    const ICON = "https://assets.example/published/icon.svg";
+    const SVG = '<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0"/></svg>';
+    const remote = fakeFetch((call) => {
+      if (call.url === ICON)
+        return new Response(SVG, { headers: { "content-type": "image/svg+xml" } });
+      return jsonResponse([{ ...published, icon: ICON }]);
+    });
+    const routes = pluginRegistryRoutes({
+      registries: [stubRegistry("published", [{ ...published, icon: ICON }]).registry],
+      fetchImpl: remote.fetch,
+    });
+    await routes.request("/");
+    const second = (await (await routes.request("/")).json()) as PluginIndexResponse;
+    expect(second.plugins.find((entry) => entry.name === published.name)!.icon).toBe(SVG);
   });
 
   it("serves a remote entry's readme from the URL its row names", async () => {

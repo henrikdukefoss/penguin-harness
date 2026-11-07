@@ -39,6 +39,11 @@ export interface IndexMedia {
    */
   inHandIcon(entry: PluginIndexEntry): string | undefined;
   /**
+   * The picture in hand for the entry's `icon` URL — its bytes and content type, read by
+   * this server so the page loads the image from here, never from the outside.
+   */
+  inHandImage(entry: PluginIndexEntry): { bytes: Uint8Array; type: string } | undefined;
+  /**
    * The readme at the entry's `readme` URL, fetching what is not in hand; null when there
    * is none to read.
    */
@@ -47,8 +52,13 @@ export interface IndexMedia {
   hydrate(entries: readonly PluginIndexEntry[]): void;
 }
 
-/** What one URL said: the icon text once it passed the safety read, or the readme text. */
-type Media = { kind: "icon"; text: string } | { kind: "readme"; text: string } | { kind: "none" };
+/** What one URL said: the icon text once it passed the safety read, a picture this server
+ * serves onward (its `Content-Type` said `image/*` and not svg), the readme text, or nothing. */
+type Media =
+  | { kind: "icon"; text: string }
+  | { kind: "icon-image"; bytes: Uint8Array; type: string }
+  | { kind: "readme"; text: string }
+  | { kind: "none" };
 
 export function indexMedia({ fetchImpl = fetch }: { fetchImpl?: typeof fetch } = {}): IndexMedia {
   // `promises` hands a read already out to a second caller; `inHand` keeps the answer once
@@ -68,30 +78,28 @@ export function indexMedia({ fetchImpl = fetch }: { fetchImpl?: typeof fetch } =
       return { kind: "none" };
     }
     if (!res.ok) return { kind: "none" };
-    const max = kind === "icon" ? MAX_PLUGIN_ICON_BYTES : MAX_README_BYTES;
-    // An icon may be a PNG: a package that ships `icon.png` and no SVG names its bytes here
-    // too. Icons are read by bytes so a PNG survives intact — text decoding would corrupt
-    // it — and a PNG becomes a data URI, the only shape the Web App draws an image with.
-    if (kind === "icon") {
-      const bytes = new Uint8Array(await res.arrayBuffer().catch(() => new Uint8Array(0)));
-      if (bytes.byteLength > max) return { kind: "none" };
-      if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
-        return {
-          kind: "icon",
-          text: `data:image/png;base64,${Buffer.from(bytes).toString("base64")}`,
-        };
-      }
-      const text = new TextDecoder().decode(bytes);
-      // The Web App inlines only markup that begins at `<svg`, so an icon fetched over a URL
-      // is normalized to its root element the same way a package's own icon.svg is.
-      if (!isSafeIconSvg(text)) return { kind: "none" };
-      return { kind: "icon", text: svgFromRoot(text) };
-    }
+    // What the URL serves is its own metadata: a `Content-Type` of image other than svg is
+    // a picture — the bytes are read here so the page loads the image from this server,
+    // never from the outside. Anything else that names an icon is markup the page inlines,
+    // read for its safe text.
+    const type = (res.headers.get("content-type") ?? "").toLowerCase();
     const size = Number(res.headers.get("content-length") ?? "");
+    const max = kind === "icon" ? MAX_PLUGIN_ICON_BYTES : MAX_README_BYTES;
+    if (kind === "icon" && type.startsWith("image/") && !type.includes("svg")) {
+      const bytes = new Uint8Array(await res.arrayBuffer().catch(() => new Uint8Array(0)));
+      if (bytes.byteLength === 0 || bytes.byteLength > max) return { kind: "none" };
+      return { kind: "icon-image", bytes, type };
+    }
     if (Number.isFinite(size) && size > max) return { kind: "none" };
     const text = await res.text().catch(() => null);
     if (text === null || text.length > max) return { kind: "none" };
-    return { kind: "readme", text };
+    // The Web App inlines only markup that begins at `<svg`, so an icon fetched over a URL
+    // is normalized to its root element the same way a package's own icon.svg is.
+    if (kind === "icon") {
+      if (!isSafeIconSvg(text)) return { kind: "none" };
+      return { kind, text: svgFromRoot(text) };
+    }
+    return { kind, text };
   }
 
   const readOnce = (kind: "icon" | "readme", url: string): Promise<Media> => {
@@ -113,6 +121,11 @@ export function indexMedia({ fetchImpl = fetch }: { fetchImpl?: typeof fetch } =
       if (!isHttpsUrl(entry.icon)) return undefined;
       const media = inHand.get(`icon|${entry.icon}`);
       return media?.kind === "icon" ? media.text : undefined;
+    },
+    inHandImage(entry) {
+      if (!isHttpsUrl(entry.icon)) return undefined;
+      const media = inHand.get(`icon|${entry.icon}`);
+      return media?.kind === "icon-image" ? { bytes: media.bytes, type: media.type } : undefined;
     },
     async readme(entry) {
       if (!isHttpsUrl(entry.readme)) return null;

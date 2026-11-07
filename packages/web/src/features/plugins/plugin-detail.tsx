@@ -518,7 +518,7 @@ function PackageDetailsLine({ details }: { details: PluginDetails }) {
  * still shows its README when the entry names one — the registry route reads the URL the row
  * carries — so the dialog describes the plugin before anyone installs it.
  */
-function usePluginReadme(row: PluginRow): ReadmeState {
+function usePluginReadme(row: PluginRow, locale: "zh" | "en"): ReadmeState {
   const part = row.module;
   const here = part === undefined || moduleOnThisServer(part);
   const namesReadme = part?.entry?.readme !== undefined;
@@ -538,7 +538,7 @@ function usePluginReadme(row: PluginRow): ReadmeState {
     let cancelled = false;
     const read =
       specifier !== undefined
-        ? getPluginReadme(specifier).then((res) => res.readme)
+        ? getPluginReadme(specifier, locale).then((res) => res.readme)
         : name !== undefined
           ? getLibraryPluginReadme(name).then(
               (res) => res.readme,
@@ -548,7 +548,7 @@ function usePluginReadme(row: PluginRow): ReadmeState {
               },
             )
           : namesReadme
-            ? getPluginReadme(row.name).then((res) => res.readme)
+            ? getPluginReadme(row.name, locale).then((res) => res.readme)
             : Promise.resolve(null);
     read.then(
       (text) => {
@@ -562,7 +562,7 @@ function usePluginReadme(row: PluginRow): ReadmeState {
     return () => {
       cancelled = true;
     };
-  }, [here, namesReadme, specifier, name, row.name]);
+  }, [here, namesReadme, specifier, name, row.name, locale]);
   return state;
 }
 
@@ -579,7 +579,7 @@ export function PluginDetailModal({
   onClose: () => void;
 }) {
   const { locale } = useLocale();
-  const readme = usePluginReadme(row);
+  const readme = usePluginReadme(row, locale);
   return (
     <Modal
       open

@@ -45,7 +45,7 @@ export interface PluginRegistry {
    * Separate from `index` because the shapes differ: the index is a listing sent in full
    * on every page load, a readme is large and wanted only for the entry someone opened.
    */
-  readme(name: string): Promise<string | null>;
+  readme(name: string, lang?: "en" | "zh"): Promise<string | null>;
   /**
    * What this source can answer without waiting on the network: the document in hand, or the
    * failure it remembers; null while a read is still out (one is started if none is). Absent on a
@@ -81,6 +81,7 @@ function asIndexEntry(value: unknown): PluginIndexEntry | null {
     "shortDescriptionZh",
     "icon",
     "readme",
+    "readmeZh",
   ] as const) {
     if (e[key] !== undefined && typeof e[key] !== "string") return null;
   }
@@ -166,14 +167,20 @@ export function builtinPluginRegistry(
     // Validated like any other source: a broken embedded index should fail loudly
     // in tests rather than serve garbage.
     index: () => Promise.resolve(parsePluginIndex(builtinIndex, BUILTIN_REGISTRY_SOURCE)),
-    readme: async (name) => {
+    readme: async (name, lang) => {
       const found = resolvePluginPackage(name, bases());
       if (found === null) return null;
-      try {
-        return await fs.readFile(path.join(found.dir, "README.md"), "utf8");
-      } catch {
-        return null;
+      // A package that ships a Chinese README answers a Chinese reader with it; one that
+      // does not falls back to the English file rather than to nothing.
+      const files = lang === "zh" ? ["README.zh.md", "README.md"] : ["README.md"];
+      for (const file of files) {
+        try {
+          return await fs.readFile(path.join(found.dir, file), "utf8");
+        } catch {
+          // try the next file
+        }
       }
+      return null;
     },
   };
 }
@@ -593,7 +600,7 @@ export function cachedRegistry(
       if (answer === null) refresh().catch(() => undefined);
       return answer;
     },
-    readme: (name) => inner.readme(name),
+    readme: (name, lang) => inner.readme(name, lang),
   };
 }
 

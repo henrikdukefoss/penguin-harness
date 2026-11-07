@@ -5247,6 +5247,12 @@ export interface PluginIndexEntry {
    * the description only.
    */
   readme?: string;
+  /**
+   * `https://` URL of the plugin's Chinese README (README.zh.md), for a listed entry whose
+   * package ships one: the same fetch rule as `readme`, served when the reader reads in
+   * Chinese; a package without one leaves it off and the dialog falls back to `readme`.
+   */
+  readmeZh?: string;
   authors: string[];
   /** SPDX license identifier. */
   license: string;

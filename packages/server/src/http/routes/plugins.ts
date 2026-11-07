@@ -442,6 +442,10 @@ export function pluginRegistryRoutes(options: PluginRoutesOptions = {}): Hono<Ap
     if (name === undefined || name === "") {
       return c.json({ error: { code: "bad_request", message: "name is required" } }, 400);
     }
+    // A Chinese reader gets the Chinese readme where one exists; anything else reads the
+    // English one. A package without the Chinese file falls back to English rather than
+    // to nothing.
+    const lang = c.req.query("lang") === "zh" ? "zh" : "en";
     // Only entries this deployment actually lists, by a package name (an index row's name is
     // not trusted to be one): answering for anything else would make the endpoint a probe of
     // what exists, or of what a path above a prefix holds.
@@ -452,7 +456,7 @@ export function pluginRegistryRoutes(options: PluginRoutesOptions = {}): Hono<Ap
     // First source that has one: a registry that reads the file from a package on this
     // machine, then — for an entry nobody installed — the `readme` URL the index row names.
     for (const registry of registries) {
-      const readme = await registry.readme(name).catch(() => null);
+      const readme = await registry.readme(name, lang).catch(() => null);
       if (readme !== null) {
         const body: PluginReadmeResponse = { name, readme };
         return c.json(body);
@@ -467,6 +471,15 @@ export function pluginRegistryRoutes(options: PluginRoutesOptions = {}): Hono<Ap
         null,
       );
     if (newest !== null) {
+      // A Chinese read that ends in nothing falls back to the English one: the entry may
+      // name no `readmeZh`, or its read may have failed.
+      if (lang === "zh") {
+        const zh = await media.readme(newest, "zh").catch(() => null);
+        if (zh !== null) {
+          const body: PluginReadmeResponse = { name, readme: zh };
+          return c.json(body);
+        }
+      }
       const readme = await media.readme(newest).catch(() => null);
       if (readme !== null) {
         const body: PluginReadmeResponse = { name, readme };

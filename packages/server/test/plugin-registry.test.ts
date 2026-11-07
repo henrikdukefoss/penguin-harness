@@ -1045,6 +1045,39 @@ describe("the route's own merge", () => {
     expect(((await none.json()) as { readme: string | null }).readme).toBeNull();
   });
 
+  it("answers a Chinese reader with the readmeZh URL its row names, falling back to the English one", async () => {
+    const README = "https://assets.example/published/README.md";
+    const README_ZH = "https://assets.example/published/README.zh.md";
+    const en = "# Published plugin";
+    const zh = "# 已发布插件（中文）";
+    const remote = fakeFetch((call) => {
+      if (call.url === README_ZH) return new Response(zh);
+      if (call.url === README) return new Response(en);
+      return jsonResponse([{ ...published, readme: README, readmeZh: README_ZH }]);
+    });
+    const routes = pluginRegistryRoutes({
+      registries: [
+        stubRegistry("published", [{ ...published, readme: README, readmeZh: README_ZH }]).registry,
+      ],
+      fetchImpl: remote.fetch,
+    });
+    const zhRes = await routes.request(
+      `/readme?name=${encodeURIComponent(published.name)}&lang=zh`,
+    );
+    expect(((await zhRes.json()) as { readme: string }).readme).toBe(zh);
+    const enRes = await routes.request(`/readme?name=${encodeURIComponent(published.name)}`);
+    expect(((await enRes.json()) as { readme: string }).readme).toBe(en);
+    // A package without a Chinese readme: the Chinese reader still gets the English one.
+    const enOnly = pluginRegistryRoutes({
+      registries: [stubRegistry("published", [{ ...published, readme: README }]).registry],
+      fetchImpl: remote.fetch,
+    });
+    const fallback = await enOnly.request(
+      `/readme?name=${encodeURIComponent(published.name)}&lang=zh`,
+    );
+    expect(((await fallback.json()) as { readme: string }).readme).toBe(en);
+  });
+
   describe("with a published index on a slow or unreachable network", () => {
     const url = "https://registry.example/index.json";
     beforeEach(() => {

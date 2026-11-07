@@ -44,10 +44,10 @@ export interface IndexMedia {
    */
   inHandImage(entry: PluginIndexEntry): { bytes: Uint8Array; type: string } | undefined;
   /**
-   * The readme at the entry's `readme` URL, fetching what is not in hand; null when there
-   * is none to read.
+   * The readme at the entry's `readme` URL — or, for a Chinese reader, the `readmeZh` URL
+   * when the entry names one — fetching what is not in hand; null when there is none to read.
    */
-  readme(entry: PluginIndexEntry): Promise<string | null>;
+  readme(entry: PluginIndexEntry, lang?: "en" | "zh"): Promise<string | null>;
   /** Starts the reads still out, so a later page load draws the cards. */
   hydrate(entries: readonly PluginIndexEntry[]): void;
 }
@@ -127,9 +127,10 @@ export function indexMedia({ fetchImpl = fetch }: { fetchImpl?: typeof fetch } =
       const media = inHand.get(`icon|${entry.icon}`);
       return media?.kind === "icon-image" ? { bytes: media.bytes, type: media.type } : undefined;
     },
-    async readme(entry) {
-      if (!isHttpsUrl(entry.readme)) return null;
-      const media = await readOnce("readme", entry.readme);
+    async readme(entry, lang) {
+      const url = lang === "zh" ? (entry.readmeZh ?? entry.readme) : entry.readme;
+      if (!isHttpsUrl(url)) return null;
+      const media = await readOnce("readme", url);
       return media.kind === "readme" ? media.text : null;
     },
     hydrate(entries) {

@@ -1925,9 +1925,11 @@ export const getPluginIndex = () => apiFetch<PluginIndexResponse>("/api/plugins/
 /** Languages plugins contributed; the grammars themselves are fetched by the highlighter. */
 export const getLanguages = () => apiFetch<LanguageIndexResponse>("/api/languages");
 
-/** An index entry's README.md, read from the package on this server; `readme` is null when the package is not here or has none. */
-export const getPluginReadme = (name: string) =>
-  apiFetch<PluginReadmeResponse>(`/api/plugins/registry/readme?name=${encodeURIComponent(name)}`);
+/** An index entry's README.md, read from the package on this server; `readme` is null when the package is not here or has none. `lang` picks the language when the package ships more than one (`zh` falls back to English). */
+export const getPluginReadme = (name: string, lang?: "en" | "zh") =>
+  apiFetch<PluginReadmeResponse>(
+    `/api/plugins/registry/readme?name=${encodeURIComponent(name)}${lang === "zh" ? "&lang=zh" : ""}`,
+  );
 
 export const getAgentSkills = (projectId: string, agentId: string, machineId: string | null) =>
   apiFetch<AgentSkillsResponse>(

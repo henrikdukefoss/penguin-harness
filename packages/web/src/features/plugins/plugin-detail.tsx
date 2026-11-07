@@ -285,7 +285,6 @@ export function PluginDetailSections({
           fallback={ICONS.puzzle}
           size={40}
           glyph={22}
-          unframed
         />
         <div className="min-w-0 flex-1">
           {packageName !== undefined && (

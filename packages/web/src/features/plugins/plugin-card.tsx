@@ -463,7 +463,6 @@ export function PluginCard(props: PluginCardProps) {
             fallback={ICONS.puzzle}
             size={36}
             glyph={20}
-            unframed
           />
           <div className="min-w-0 flex-1">
             {/* The package's display name, else the plugin's name (its id), set in the UI font as

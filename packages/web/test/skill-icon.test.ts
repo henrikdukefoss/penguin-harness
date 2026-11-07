@@ -64,4 +64,13 @@ describe("sanitizeSkillIcon", () => {
       '<svg viewBox="0 0 24 24"><path d="M2.5 3h6a4 4 0 0 1 4 4v14" fill="none" /></svg>';
     expect(sanitizeSkillIcon(icon)).toBe(icon);
   });
+
+  it("a data:image/png URI passes; other data URIs and malformed ones do not", () => {
+    const uri = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==";
+    expect(sanitizeSkillIcon(uri)).toBe(uri);
+    expect(sanitizeSkillIcon("data:image/svg+xml;base64,PHN2Zy8+")).toBeNull();
+    expect(sanitizeSkillIcon("data:text/html;base64,PHNjcmlwdD4=")).toBeNull();
+    expect(sanitizeSkillIcon("data:image/png;base64,not base64!!")).toBeNull();
+    expect(sanitizeSkillIcon("data:image/png,notbase64shape")).toBeNull();
+  });
 });

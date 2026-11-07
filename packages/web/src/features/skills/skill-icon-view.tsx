@@ -69,7 +69,21 @@ export function SkillIcon({
   // Held stable across renders: React compares this prop by object identity and re-sets
   // `innerHTML` whenever it differs, so a literal in the JSX rebuilds the markup on every render
   // (see test/inner-html-stability.test.ts).
-  const markup = useMemo(() => (safe ? { __html: safe } : undefined), [safe]);
+  const markup = useMemo(
+    () => (safe && !safe.startsWith("data:") ? { __html: safe } : undefined),
+    [safe],
+  );
+  if (safe?.startsWith("data:image/")) {
+    // A PNG icon arrives as a data URI: an image, not markup — drawn by an img, never inlined.
+    return (
+      <img
+        src={safe}
+        alt=""
+        style={{ width: size, height: size }}
+        className={`block shrink-0 object-contain ${className}`}
+      />
+    );
+  }
   if (markup === undefined) return <GlyphIcon d={fallback} size={size} className={className} />;
   return (
     <span

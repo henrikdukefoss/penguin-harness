@@ -68,18 +68,30 @@ export function indexMedia({ fetchImpl = fetch }: { fetchImpl?: typeof fetch } =
       return { kind: "none" };
     }
     if (!res.ok) return { kind: "none" };
-    const size = Number(res.headers.get("content-length") ?? "");
     const max = kind === "icon" ? MAX_PLUGIN_ICON_BYTES : MAX_README_BYTES;
+    // An icon may be a PNG: a package that ships `icon.png` and no SVG names its bytes here
+    // too. Icons are read by bytes so a PNG survives intact — text decoding would corrupt
+    // it — and a PNG becomes a data URI, the only shape the Web App draws an image with.
+    if (kind === "icon") {
+      const bytes = new Uint8Array(await res.arrayBuffer().catch(() => new Uint8Array(0)));
+      if (bytes.byteLength > max) return { kind: "none" };
+      if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
+        return {
+          kind: "icon",
+          text: `data:image/png;base64,${Buffer.from(bytes).toString("base64")}`,
+        };
+      }
+      const text = new TextDecoder().decode(bytes);
+      // The Web App inlines only markup that begins at `<svg`, so an icon fetched over a URL
+      // is normalized to its root element the same way a package's own icon.svg is.
+      if (!isSafeIconSvg(text)) return { kind: "none" };
+      return { kind: "icon", text: svgFromRoot(text) };
+    }
+    const size = Number(res.headers.get("content-length") ?? "");
     if (Number.isFinite(size) && size > max) return { kind: "none" };
     const text = await res.text().catch(() => null);
     if (text === null || text.length > max) return { kind: "none" };
-    // The Web App inlines only markup that begins at `<svg`, so an icon fetched over a URL is
-    // normalized to its root element the same way a package's own icon.svg is.
-    if (kind === "icon") {
-      if (!isSafeIconSvg(text)) return { kind: "none" };
-      return { kind, text: svgFromRoot(text) };
-    }
-    return { kind, text };
+    return { kind: "readme", text };
   }
 
   const readOnce = (kind: "icon" | "readme", url: string): Promise<Media> => {

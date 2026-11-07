@@ -21,10 +21,16 @@ const HREF_ATTR = /href\s*=/i;
 /**
  * Returns the inlinable SVG source (trimmed) if validation passes, otherwise null
  * (caller falls back to the default book icon).
+ *
+ * A plugin's card may also carry a PNG icon, which reaches the page as a `data:image/png`
+ * URI (the server turns the fetched bytes into one): a data URI holds no markup, so the
+ * accept-list is exact — the `data:image/png;base64,` scheme and base64 payload, nothing
+ * else — and the caller draws it as an image rather than inlining it.
  */
 export function sanitizeSkillIcon(svg: string | undefined): string | null {
   if (!svg) return null;
   const trimmed = svg.trim();
+  if (/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(trimmed)) return trimmed;
   if (!/^<svg[\s>]/i.test(trimmed)) return null;
   const lower = trimmed.toLowerCase();
   if (lower.includes("<script")) return null;

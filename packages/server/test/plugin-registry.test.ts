@@ -979,6 +979,25 @@ describe("the route's own merge", () => {
     );
   });
 
+  it("serves a URL-named icon.png as a data URI the Web App draws as an image", async () => {
+    const ICON = "https://assets.example/published/icon.png";
+    // A minimal PNG: the 8-byte signature the reader keys on.
+    const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const remote = fakeFetch((call) => {
+      if (call.url === ICON) return new Response(PNG);
+      return jsonResponse([{ ...published, icon: ICON }]);
+    });
+    const routes = pluginRegistryRoutes({
+      registries: [stubRegistry("published", [{ ...published, icon: ICON }]).registry],
+      fetchImpl: remote.fetch,
+    });
+    await routes.request("/");
+    const second = (await (await routes.request("/")).json()) as PluginIndexResponse;
+    expect(second.plugins.find((entry) => entry.name === published.name)!.icon).toBe(
+      `data:image/png;base64,${Buffer.from(PNG).toString("base64")}`,
+    );
+  });
+
   it("serves a remote entry's readme from the URL its row names", async () => {
     const README = "https://assets.example/published/README.md";
     const text = "# Published plugin\n\nIts own long-form readme.";

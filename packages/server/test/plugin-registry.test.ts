@@ -129,18 +129,29 @@ describe("httpPluginRegistry", () => {
     expect(entries).toEqual([VALID_ENTRY]);
   });
 
-  it("drops a remote entry's icon, an SVG the page would inline, and keeps the rest of the row", async () => {
+  it("drops a remote entry's inline-SVG icon and keeps an https URL one, with the rest of the row", async () => {
     const described: PluginIndexEntry = {
       ...VALID_ENTRY,
       title: "Demo",
       titleZh: "示例",
       descriptionZh: "一个示例插件。",
       shortDescription: "Demo.",
+      icon: "https://example.com/demo/icon.svg",
+      readme: "https://example.com/demo/README.md",
     };
     const registry = fakeFetch(() =>
-      jsonResponse([{ ...described, icon: '<svg onload="alert(1)"></svg>' }]),
+      jsonResponse([
+        { ...described, icon: '<svg onload="alert(1)"></svg>' },
+        described,
+        { ...described, icon: "http://example.com/insecure.svg" },
+      ]),
     );
-    expect(await httpPluginRegistry(url, registry.fetch).index()).toEqual([described]);
+    expect(await httpPluginRegistry(url, registry.fetch).index()).toEqual([
+      // toEqual reads `undefined` as absent: the row keeps everything but its icon.
+      { ...described, icon: undefined },
+      described,
+      { ...described, icon: undefined },
+    ]);
   });
 
   it("tries a failed connection again, and names the last cause after the final attempt", async () => {
@@ -901,6 +912,74 @@ describe("the route's own merge", () => {
     });
     const body = (await (await routes.request("/")).json()) as PluginIndexResponse;
     expect(body.plugins.find((entry) => entry.name === published.name)).toEqual(published);
+  });
+
+  it("fills a remote entry's card with the icon its URL serves, on a read after the fetch answers", async () => {
+    const ICON = "https://assets.example/published/icon.svg";
+    const SVG = '<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0"/></svg>';
+    const remote = fakeFetch((call) => {
+      if (call.url === ICON) return new Response(SVG);
+      return jsonResponse([{ ...published, icon: ICON }]);
+    });
+    const routes = pluginRegistryRoutes({
+      registries: [stubRegistry("published", [{ ...published, icon: ICON }]).registry],
+      fetchImpl: remote.fetch,
+    });
+    // The first read starts the fetch; the answer lands in the cache and the next read draws.
+    const first = (await (await routes.request("/")).json()) as PluginIndexResponse;
+    expect(first.plugins.find((entry) => entry.name === published.name)!.icon).toBeUndefined();
+    const second = (await (await routes.request("/")).json()) as PluginIndexResponse;
+    expect(second.plugins.find((entry) => entry.name === published.name)!.icon).toBe(SVG);
+    // An installed package's own icon wins over the fetched one: a package here whose
+    // icon.svg differs from what the row's URL serves, so only the local one can answer.
+    const LOCAL_SVG = '<svg viewBox="0 0 24 24"><circle r="12"/></svg>';
+    const prefix = await mkdtemp(path.join(tmpdir(), "penguin-prefix-"));
+    try {
+      await writeFile(path.join(prefix, "package.json"), '{"name":"prefix","private":true}');
+      const dir = path.join(prefix, "node_modules", "@example", "penguin-plugin-published");
+      await mkdir(dir, { recursive: true });
+      await writeFile(
+        path.join(dir, "package.json"),
+        JSON.stringify({ name: published.name, version: "1.0.0" }),
+      );
+      await writeFile(path.join(dir, "icon.svg"), `${LOCAL_SVG}\n`);
+      const withLocal = pluginRegistryRoutes({
+        registries: [stubRegistry("published", [{ ...published, icon: ICON }]).registry],
+        fetchImpl: remote.fetch,
+        bases: () => [{ file: path.join(prefix, "package.json"), builtin: false }],
+      });
+      const body = (await (await withLocal.request("/")).json()) as PluginIndexResponse;
+      // The package's own icon.svg, verbatim, not the row URL's SVG.
+      expect(body.plugins.find((entry) => entry.name === published.name)!.icon).toBe(
+        `${LOCAL_SVG}\n`,
+      );
+    } finally {
+      await rm(prefix, { recursive: true, force: true });
+    }
+  });
+
+  it("serves a remote entry's readme from the URL its row names", async () => {
+    const README = "https://assets.example/published/README.md";
+    const text = "# Published plugin\n\nIts own long-form readme.";
+    const remote = fakeFetch((call) => {
+      if (call.url === README) return new Response(text);
+      return jsonResponse([{ ...published, readme: README }]);
+    });
+    const routes = pluginRegistryRoutes({
+      registries: [stubRegistry("published", [{ ...published, readme: README }]).registry],
+      fetchImpl: remote.fetch,
+    });
+    const res = await routes.request(`/readme?name=${encodeURIComponent(published.name)}`);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { readme: string }).readme).toBe(text);
+    // A URL that answers nothing: null, like an entry that names none.
+    const dead = fakeFetch(() => new Response("gone", { status: 404 }));
+    const offline = pluginRegistryRoutes({
+      registries: [stubRegistry("published", [{ ...published, readme: README }]).registry],
+      fetchImpl: dead.fetch,
+    });
+    const none = await offline.request(`/readme?name=${encodeURIComponent(published.name)}`);
+    expect(((await none.json()) as { readme: string | null }).readme).toBeNull();
   });
 
   describe("with a published index on a slow or unreachable network", () => {

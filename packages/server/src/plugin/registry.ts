@@ -12,9 +12,11 @@
  *     on a server the package is not installed on);
  *   - the HTTP registry fetches an `index.json` URL and runs it through the same
  *     validator, so a remote index is trusted no further than the embedded one — and less
- *     in one respect: its entries lose their `icon`, an SVG the Web App inlines into the
- *     page, which only what ships with this server may supply (the embedded index, and a
- *     package's own icon on this machine, see localPluginDisplay).
+ *     in one respect: its entries lose an `icon` that is inline SVG text (something the
+ *     Web App would inline into the page, which only what ships with this server may
+ *     supply), while one that names an `https://` URL stays — the server fetches that URL
+ *     itself, checks it for a safe SVG and serves the text (see plugin/index-media.ts,
+ *     which also fetches a remote entry's `readme` URL).
  *
  * A deployment's list is the builtin registry plus the published index (see
  * NIGHTLY_INDEX_URL), merged in http/routes/plugins.ts.
@@ -78,6 +80,7 @@ function asIndexEntry(value: unknown): PluginIndexEntry | null {
     "shortDescription",
     "shortDescriptionZh",
     "icon",
+    "readme",
   ] as const) {
     if (e[key] !== undefined && typeof e[key] !== "string") return null;
   }
@@ -112,8 +115,10 @@ function asIndexEntry(value: unknown): PluginIndexEntry | null {
  * by one.
  *
  * `icons: "drop"` is for a document from the network: the Web App draws an entry's icon by
- * inlining its SVG, so a remote entry's is removed. Removed rather than refused — the rest of
- * the row still lists, under the puzzle piece.
+ * inlining its SVG text, so a remote entry loses an icon that is such text. An icon that
+ * names an `https://` URL stays — the server fetches the URL itself (see
+ * plugin/index-media.ts). Removed rather than refused either way — the rest of the row
+ * still lists, under the puzzle piece.
  */
 export function parsePluginIndex(
   data: unknown,
@@ -128,13 +133,18 @@ export function parsePluginIndex(
     if (entry === null) {
       throw new Error(`plugin index from ${source} has a malformed entry at index ${i}`);
     }
-    return icons === "drop" ? withoutIcon(entry) : entry;
+    return icons === "drop" ? withoutInlineIcon(entry) : entry;
   });
 }
 
-/** An index entry with no `icon`: what a remote source's entry becomes (see parsePluginIndex). */
-export function withoutIcon(entry: PluginIndexEntry): PluginIndexEntry {
-  if (!("icon" in entry)) return entry;
+/**
+ * An index entry whose `icon` is not an `https://` URL loses it: inline SVG text is what
+ * the page inlines, and only what ships with this server may supply that. What a remote
+ * entry keeps is a location the server fetches itself, reads for a safe SVG, and serves
+ * as text (see plugin/index-media.ts).
+ */
+export function withoutInlineIcon(entry: PluginIndexEntry): PluginIndexEntry {
+  if (entry.icon === undefined || entry.icon.startsWith("https://")) return entry;
   const { icon: _dropped, ...rest } = entry;
   return rest;
 }
@@ -457,9 +467,9 @@ export function httpPluginRegistry(
       chain = next.catch(() => undefined);
       return next;
     },
-    // The shared index format carries no readme location, so a remote source has none to
-    // offer yet. Null rather than a guessed URL: inventing one would have the Web App
-    // render whatever answered it.
+    // A remote entry's readme lives at the `readme` URL its row names; the listing route
+    // fetches it through plugin/index-media.ts once the registries have said none of them
+    // carries the file themselves. Null here rather than a guess.
     readme: () => Promise.resolve(null),
   };
 }

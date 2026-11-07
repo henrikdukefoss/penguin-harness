@@ -16,9 +16,18 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import dns from "node:dns";
 import type { Server as HttpServer } from "node:http";
 import { config as loadDotenv } from "dotenv";
 import { serve } from "@hono/node-server";
+
+// The server makes many outbound https calls (plugin indexes and channel assets, npm, machine
+// relays). Node's default DNS result order is "verbatim" — on a host whose resolver answers
+// with an IPv6 address first, undici tries that address even when the host has no working IPv6
+// route, and every one of those calls times out before the IPv4 fallback is ever tried. IPv4
+// first is the order that works everywhere; a dual-stack host loses nothing that matters.
+dns.setDefaultResultOrder("ipv4first");
+
 import { bootAppDeps, createApp } from "./app.js";
 import { HmrHost, hmrMain } from "@prismshadow/penguin-hmr";
 import type { Hmr } from "@prismshadow/penguin-hmr";

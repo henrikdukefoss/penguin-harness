@@ -5233,11 +5233,20 @@ export interface PluginIndexEntry {
   shortDescription?: string;
   shortDescriptionZh?: string;
   /**
-   * The plugin's raw icon SVG (optional; the card draws the puzzle piece without it). The
-   * listing fills these display fields from the package's own card contribution (in its
-   * ifaces.json) and icon when the package is on this server, over whatever the index row says.
+   * The plugin's icon (optional; the card draws the puzzle piece without it). Two shapes
+   * reach this field: the raw SVG text of a package that is on this server (the listing
+   * fills it from the package's own icon.svg, over whatever the index row says), and —
+   * for a listed entry that is not here — an `https://` URL the server itself fetches,
+   * checks for a safe SVG and serves as text; a remote icon that is not such a URL is
+   * dropped.
    */
   icon?: string;
+  /**
+   * `https://` URL of the plugin's README.md, for a listed entry nobody installed: the
+   * server fetches it when the detail dialog asks. Optional; an entry without one shows
+   * the description only.
+   */
+  readme?: string;
   authors: string[];
   /** SPDX license identifier. */
   license: string;

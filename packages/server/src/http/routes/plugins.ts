@@ -46,9 +46,10 @@ import {
   listInstalledSkills,
   libraryParts,
   readPackageJson,
+  compareVersions,
   uninstallMcpServer,
+  type NpmPackage,
 } from "@prismshadow/penguin-core";
-import type { NpmPackage } from "@prismshadow/penguin-core";
 import type {
   AgentMcpServersResponse,
   AgentPluginsInstallResponse,
@@ -74,10 +75,11 @@ import {
   httpPluginRegistry,
   localPluginDisplay,
   mergeIndexes,
-  withoutIcon,
+  withoutInlineIcon,
   NIGHTLY_INDEX_URL,
 } from "../../plugin/registry.js";
 import type { CachedRegistry, IndexSnapshot, PluginRegistry } from "../../plugin/registry.js";
+import { indexMedia } from "../../plugin/index-media.js";
 import { PACKAGE_NAME, pluginBases, resolvePluginPackage } from "../../plugin/loader.js";
 import type { PluginBase } from "../../plugin/loader.js";
 import { installedPackageDir, pluginsPrefix, prefixDependencies } from "../../plugin/install.js";
@@ -389,6 +391,10 @@ export function pluginRegistryRoutes(options: PluginRoutesOptions = {}): Hono<Ap
   const registries = options.registries ?? resolveRegistries(options);
   const bases = options.bases ?? (() => []);
   const prefix = options.prefix ?? (() => null);
+  // Fetches what a listed entry names at a URL: its icon (for the card, safety-read like
+  // any icon this server serves) and its readme (for the detail route below). Built once
+  // per App, so the answers outlive a request the way the index cache does.
+  const media = indexMedia({ fetchImpl: options.fetchImpl });
 
   /**
    * Every entry this deployment lists: the indexes' and the prefix's own server modules. A
@@ -410,8 +416,19 @@ export function pluginRegistryRoutes(options: PluginRoutesOptions = {}): Hono<Ap
     // row says, so an installed package's card shows its icon and both
     // languages even where its index row carries neither.
     const here = bases();
+    // An entry that is not here draws its icon from the `https://` URL its row names: what is
+    // in hand fills the card at once, one still out is started and answers on a later load.
+    media.hydrate(entries);
     const plugins = await Promise.all(
-      entries.map(async (entry) => ({ ...entry, ...(await localPluginDisplay(entry.name, here)) })),
+      entries.map(async (entry) => {
+        const display = await localPluginDisplay(entry.name, here);
+        if (display.icon === undefined && entry.icon?.startsWith("https://")) {
+          // The row's icon is a location, not art: the page draws the fetched SVG once it
+          // is in hand, and none until then — never the URL itself.
+          display.icon = media.inHandIcon(entry);
+        }
+        return { ...entry, ...display };
+      }),
     );
     const body: PluginIndexResponse = { plugins, failures, pending };
     return c.json(body);
@@ -428,10 +445,25 @@ export function pluginRegistryRoutes(options: PluginRoutesOptions = {}): Hono<Ap
     if (!PACKAGE_NAME.test(name) || !entries.some((e) => e.name === name)) {
       return c.json({ error: { code: "not_found", message: "no such plugin" } }, 404);
     }
-    // First source that has one. Only the builtin registry carries readmes today: the shared
-    // index format has no readme location, so a remote source has none to offer.
+    // First source that has one: a registry that reads the file from a package on this
+    // machine, then — for an entry nobody installed — the `readme` URL the index row names.
     for (const registry of registries) {
       const readme = await registry.readme(name).catch(() => null);
+      if (readme !== null) {
+        const body: PluginReadmeResponse = { name, readme };
+        return c.json(body);
+      }
+    }
+    // The index may list several versions of a name; the newest one's readme URL is the
+    // answer, the same pick the install face makes for the newest channel.
+    const newest = entries
+      .filter((e) => e.name === name)
+      .reduce<PluginIndexEntry | null>(
+        (a, b) => (a === null || compareVersions(b.version, a.version) > 0 ? b : a),
+        null,
+      );
+    if (newest !== null) {
+      const readme = await media.readme(newest).catch(() => null);
       if (readme !== null) {
         const body: PluginReadmeResponse = { name, readme };
         return c.json(body);
@@ -482,7 +514,7 @@ function resolveRegistries(options: PluginRoutesOptions): PluginRegistry[] {
   // which may not have dropped the icons.
   const seed = options.seed ?? null;
   const cache = cachedRegistry(httpPluginRegistry(url, { fetchImpl: options.fetchImpl ?? fetch }), {
-    seed: seed === null ? null : { at: seed.at, entries: seed.entries.map(withoutIcon) },
+    seed: seed === null ? null : { at: seed.at, entries: seed.entries.map(withoutInlineIcon) },
   });
   options.onCache?.(cache);
   return [builtin, cache];

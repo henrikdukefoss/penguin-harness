@@ -13,11 +13,9 @@ import {
 } from "@prismshadow/penguin-ui";
 
 import { S } from "../../lib/strings";
-import { useLocale } from "../../state/locale";
 import { useShortcutTitle } from "../../lib/shortcuts/use-keymap";
 import { latestConversation, withoutOrgSessions } from "../../lib/session-grouping";
 import { NEW_CHAT_ICON, glyphOf } from "../../lib/nav-icons";
-import { pageTitle } from "../../lib/local-page-table";
 import { navKeysFor } from "./nav-state";
 import { navPagesOf, useWebAppPages } from "../index";
 import { useUpdateBadges } from "../../lib/use-update-badges";
@@ -49,7 +47,6 @@ import { DRAFT_SESSION_ID, useNewChat } from "../../features/chat";
  */
 export function CollapsedRail({ onExpand }: { onExpand: () => void }) {
   const { user } = useAuth();
-  const { locale } = useLocale();
   const navPages = navPagesOf(useWebAppPages());
   const navigate = useNavigate();
   const { currentProject, setCurrentAgentId } = useProject();
@@ -108,8 +105,6 @@ export function CollapsedRail({ onExpand }: { onExpand: () => void }) {
     currentMode >= 0
       ? modeStates[currentMode]!.navItems.map((item) => ({
           ...item,
-          /** The resolved drawing: the contribution names the glyph in the registry. */
-          icon: glyphOf(item.icon),
           note: notes.get(item.key) ?? null,
         }))
       : navKeysFor(navPages, user?.isAdmin === true).flatMap((key) => {
@@ -120,8 +115,10 @@ export function CollapsedRail({ onExpand }: { onExpand: () => void }) {
                 {
                   key,
                   to: `/${key}`,
-                  // A page names itself in the interface's language (PageData.title / titleZh).
-                  label: pageTitle(page, locale),
+                  label:
+                    typeof S.nav[key as keyof typeof S.nav] === "string"
+                      ? (S.nav[key as keyof typeof S.nav] as string)
+                      : (page.title ?? key),
                   icon: glyphOf(page.icon ?? key),
                   note: notes.get(key) ?? null,
                 },

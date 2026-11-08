@@ -34,7 +34,5 @@ export class MainSidebarBadgesModule {
   @Bind("main.account-badge") account: NavBadge = {
     useNote: () => useUpdateBadges().softwareNote,
   };
-  // The drawer button's hint names any waiting trail (software, the kernel, plugins, model
-  // presets, unexpected errors) — `note` is the combined case; `softwareNote` says software only.
-  @Bind("main.menu-badge") menu: NavBadge = { useNote: () => useUpdateBadges().note };
+  @Bind("main.menu-badge") menu: NavBadge = { useNote: () => useUpdateBadges().softwareNote };
 }

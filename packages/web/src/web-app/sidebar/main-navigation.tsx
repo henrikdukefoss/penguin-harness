@@ -14,7 +14,6 @@ import {
 } from "../../lib/sidebar-nav-state";
 
 import { NAV_ICONS, glyphOf } from "../../lib/nav-icons";
-import { pageTitle } from "../../lib/local-page-table";
 import { UserMenu } from "./user-menu";
 import { isCurrentPath, renderRouterLink } from "./router-link";
 import { isNavPage } from "../../lib/main-sidebar-persistence";
@@ -23,7 +22,6 @@ import type { MainSidebarState } from "../../features/session-list";
 export function createMainSidebarNavigation(scope: MainSidebarState) {
   const {
     location,
-    locale,
     user,
     badges,
     slotBadges,
@@ -50,15 +48,8 @@ export function createMainSidebarNavigation(scope: MainSidebarState) {
     /** Where the row leads — null for a row with nowhere to lead, which renders disabled. */
     to: string | null;
     label: string;
-    /** The resolved drawing: the contribution names the glyph in the registry. */
     icon: string;
-  }> =
-    currentMode < 0
-      ? []
-      : [...modeStates[currentMode]!.navItems].map((item) => ({
-          ...item,
-          icon: glyphOf(item.icon),
-        }));
+  }> = currentMode < 0 ? [] : [...modeStates[currentMode]!.navItems];
 
   /**
    * Development mode's entries by area (nav-state.ts): New chat, then the main
@@ -81,21 +72,17 @@ export function createMainSidebarNavigation(scope: MainSidebarState) {
   const renderNavEntry = (key: NavGroupKey) => {
     const to = `/${key}`;
     const page = navPages.find((page) => page.key === key);
-    // A page names itself in the interface's language (PageData.title / titleZh); the S.nav
-    // strings cover only the entries no page backs (New chat, the switches, the fold).
     const label =
-      page !== undefined
-        ? pageTitle(page, locale)
-        : typeof S.nav[key as keyof typeof S.nav] === "string"
-          ? (S.nav[key as keyof typeof S.nav] as string)
-          : key;
+      typeof S.nav[key as keyof typeof S.nav] === "string"
+        ? (S.nav[key as keyof typeof S.nav] as string)
+        : (page?.title ?? key);
     const note = notes.get(key) ?? null;
     const pinned = isNavPinned(key, navPins);
     return (
       <SidebarNavEntry
         key={key}
         label={label}
-        glyph={page !== undefined ? glyphOf(page.icon) : NAV_ICONS[key as keyof typeof NAV_ICONS]}
+        glyph={NAV_ICONS[key as keyof typeof NAV_ICONS]}
         href={to}
         active={isCurrentPath(to, location.pathname)}
         renderLink={renderRouterLink}

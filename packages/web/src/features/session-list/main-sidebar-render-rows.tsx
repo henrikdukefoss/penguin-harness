@@ -12,6 +12,7 @@ export function useMainSidebarRenderRows(scope: ReturnType<typeof useMainSidebar
     locale,
     activeSessionId,
     sessionSeen,
+    scheduledSessions,
     pinnedSessions,
     dragSession,
     setDragSession,
@@ -111,6 +112,7 @@ export function useMainSidebarRenderRows(scope: ReturnType<typeof useMainSidebar
             // the whole transition sequence is testable without a DOM.
             activity={sessionRowActivity(s, sessionSeen, activeSessionId)}
             background={sessionBackgroundTasks(s)}
+            scheduled={scheduledSessions.has(s.sessionId)}
             pinned={pinnedSessions.has(s.sessionId)}
             // Last ACTIVITY, not creation: the server stamps lastActiveAt when a run
             // starts and again when it ends, so a running row shows its run-start time

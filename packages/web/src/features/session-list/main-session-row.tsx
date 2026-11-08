@@ -23,6 +23,7 @@ export function SidebarSessionRow({
   active,
   activity,
   background,
+  scheduled,
   pinned,
   lastActive,
   locale,
@@ -47,6 +48,8 @@ export function SidebarSessionRow({
   activity: SessionActivity;
   /** Background tasks the Session still owns (sessionBackgroundTasks); 0 draws no mark. */
   background: number;
+  /** A scheduled task still to fire is bound to this Session (pendingScheduleSessions); false draws no mark. */
+  scheduled: boolean;
   /** Row is pinned (bubbled to its group's top; small pin glyph on the title). */
   pinned: boolean;
   /** Preformatted compact last-active time ("" hides the slot's resting text). */

@@ -7,11 +7,31 @@
  * rejected; a clean line-art SVG passes through as-is (after trim).
  */
 import { describe, expect, it } from "vitest";
-import { sanitizeSkillIcon } from "../src/features/skills/skill-icon";
+import { sanitizeSkillIcon, iconPaintsItself } from "../src/features/skills/skill-icon";
 
 const CLEAN =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">' +
   '<path d="M4 4h16v16H4z" /></svg>';
+
+describe("iconPaintsItself", () => {
+  it("line art (fill=none, stroke=currentColor) stays in the tile", () => {
+    expect(iconPaintsItself(CLEAN)).toBe(false);
+    expect(iconPaintsItself('<svg><path d="M2.5 3h6" fill="none" /></svg>')).toBe(false);
+    expect(iconPaintsItself('<svg stroke="currentColor"><path d="M0 0" /></svg>')).toBe(false);
+  });
+
+  it("a brand logo paints itself: a fill beyond none, a gradient, an inline style fill", () => {
+    expect(iconPaintsItself('<svg><path fill="#f05138" d="M0 0" /></svg>')).toBe(true);
+    expect(iconPaintsItself('<svg><path fill="url(#a)" d="M0 0" /></svg>')).toBe(true);
+    expect(iconPaintsItself("<svg><radialGradient/></svg>")).toBe(true);
+    expect(iconPaintsItself('<svg><path style="fill:#00c4b3" d="M0 0" /></svg>')).toBe(true);
+  });
+
+  it("a picture path on this server paints itself; a fill=none attribute value does not count", () => {
+    expect(iconPaintsItself("/api/plugins/registry/icon?name=x")).toBe(true);
+    expect(iconPaintsItself('<svg fill="none"><path d="M0 0" /></svg>')).toBe(false);
+  });
+});
 
 describe("sanitizeSkillIcon", () => {
   it("a clean SVG passes (returned as-is after trim so inline rendering inherits currentColor)", () => {

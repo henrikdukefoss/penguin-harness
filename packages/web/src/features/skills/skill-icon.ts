@@ -40,3 +40,21 @@ export function sanitizeSkillIcon(svg: string | undefined): string | null {
   if (EVENT_ATTR.test(trimmed)) return null;
   return trimmed;
 }
+
+/**
+ * True when the mark paints itself and stands unframed: a brand logo (a fill or gradient
+ * beyond line art) or a picture served by this server. Line art — `stroke="currentColor"`,
+ * `fill="none"` — paints nothing of its own: it takes its colour from the text, so the
+ * tile's tint is what colours it, and it belongs in the tile. The two are disjoint in the
+ * wild (a logo carries fills, line art carries currentColor); when a mark manages both,
+ * its own colours win.
+ */
+export function iconPaintsItself(svg: string): boolean {
+  if (svg.startsWith("/")) return true;
+  if (/gradient/i.test(svg)) return true;
+  for (const m of svg.matchAll(/fill\s*=\s*"([^"]*)"/gi)) {
+    if (m[1]!.trim() !== "" && m[1]!.trim() !== "none") return true;
+  }
+  if (/style\s*=\s*"[^"]*fill\s*:\s*(?!none)[^";]+/i.test(svg)) return true;
+  return false;
+}

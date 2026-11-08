@@ -15,7 +15,7 @@
 import { useMemo } from "react";
 import { GlyphIcon } from "@prismshadow/penguin-ui";
 import { BOOK_ICON } from "../chat/skill-use";
-import { sanitizeSkillIcon } from "./skill-icon";
+import { sanitizeSkillIcon, iconPaintsItself } from "./skill-icon";
 
 /**
  * Per-name tile colors (soft tinted tile + colored line-art stroke, light/dark pairs).
@@ -107,7 +107,6 @@ export function SkillTile({
   fallback = BOOK_ICON,
   size = 36,
   glyph = 20,
-  unframed = false,
 }: {
   icon?: string;
   /** Names the tile's color. */
@@ -118,15 +117,12 @@ export function SkillTile({
   size?: number;
   /** Icon edge in px. */
   glyph?: number;
-  /**
-   * The subject's own icon stands alone, unframed: a card's art is the mark, and a tinted
-   * square around it reads as a frame. Only the fallback — no usable icon at all — sits in
-   * the tinted square, so a bare glyph never floats loose. The plugin pages opt in; rows
-   * and lists keep the tile.
-   */
-  unframed?: boolean;
 }) {
-  if (unframed && sanitizeSkillIcon(icon) !== null) {
+  // A mark that paints itself (a brand logo's fills, a served picture) stands alone — a
+  // tinted square behind it reads as a frame. Line art paints nothing of its own: the tile's
+  // tint is what colours it, so it stays in the tile, as does the bare fallback glyph.
+  const safe = sanitizeSkillIcon(icon);
+  if (safe !== null && iconPaintsItself(safe)) {
     return <SkillIcon icon={icon} fallback={fallback} size={size} />;
   }
   return (

@@ -12,10 +12,10 @@
  * rendered inline once it passes sanitizeSkillIcon (stroke uses currentColor, following text
  * color).
  */
-import { useMemo } from "react";
+import { useId, useMemo } from "react";
 import { GlyphIcon } from "@prismshadow/penguin-ui";
 import { BOOK_ICON } from "../chat/skill-use";
-import { sanitizeSkillIcon, iconPaintsItself } from "./skill-icon";
+import { sanitizeSkillIcon, iconPaintsItself, namespaceSvgIds } from "./skill-icon";
 
 /**
  * Per-name tile colors (soft tinted tile + colored line-art stroke, light/dark pairs).
@@ -66,12 +66,18 @@ export function SkillIcon({
   className?: string;
 }) {
   const safe = sanitizeSkillIcon(icon);
+  // Every inline svg shares one document, so its internal ids (`<linearGradient id="a">`,
+  // referenced as `url(#a)`) must not collide across icons: they are renamed into this
+  // instance's namespace (useId, stripped to plain id characters). `uid` is stable for the
+  // instance's lifetime, so it can join the memo deps without breaking the identity rule
+  // (see test/inner-html-stability.test.ts).
+  const uid = useId().replace(/[^a-zA-Z0-9]/g, "");
   // Held stable across renders: React compares this prop by object identity and re-sets
   // `innerHTML` whenever it differs, so a literal in the JSX rebuilds the markup on every render
   // (see test/inner-html-stability.test.ts).
   const markup = useMemo(
-    () => (safe && !safe.startsWith("/") ? { __html: safe } : undefined),
-    [safe],
+    () => (safe && !safe.startsWith("/") ? { __html: namespaceSvgIds(safe, uid) } : undefined),
+    [safe, uid],
   );
   if (safe?.startsWith("/")) {
     // A picture is a path on this server, not markup: loaded by the page same-origin, never

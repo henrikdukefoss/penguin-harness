@@ -42,6 +42,38 @@ export function sanitizeSkillIcon(svg: string | undefined): string | null {
 }
 
 /**
+ * Inline SVGs share one document, so their internal ids don't: two icons that both define
+ * `id="a"` (C#'s linearGradient and Kotlin's radialGradient do) collide — every `url(#a)`
+ * in the page resolves to the *first* `#a` in the DOM, and the second icon paints with the
+ * first one's geometry (its own gradient vanishes). Before inlining, rename every `id="X"`
+ * into a per-icon namespace (`${uid}-X`) and rewrite the references that point at it.
+ * `url(#…)` is the only reference form an inlined icon can carry: `sanitizeSkillIcon` has
+ * already rejected every `href` attribute. Returns the input unchanged when there is no
+ * `id` to rename (the common case — line art has none).
+ */
+export function namespaceSvgIds(svg: string, uid: string): string {
+  if (!svg.includes("id=")) return svg;
+  const ids = new Set<string>();
+  for (const m of svg.matchAll(/\bid\s*=\s*"([^"]+)"/g)) ids.add(m[1]!);
+  if (ids.size === 0) return svg;
+  // Longest first so an id that is a prefix of another (b vs bc) can't shadow it.
+  const alt = [...ids]
+    .sort((a, b) => b.length - a.length)
+    .map((id) => id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|");
+  const rename = (id: string) => `${uid}-${id}`;
+  return svg
+    .replace(
+      new RegExp(`(\\bid\\s*=\\s*")(${alt})(")`, "g"),
+      (_m, pre, id) => pre + rename(id!) + '"',
+    )
+    .replace(
+      new RegExp(`(url\\((['"]?)#)(${alt})(\\2\\))`, "gi"),
+      (_m, pre, _q, id, post) => pre + rename(id!) + post,
+    );
+}
+
+/**
  * True when the mark paints itself and stands unframed: a brand logo (a fill or gradient
  * beyond line art) or a picture served by this server. Line art — `stroke="currentColor"`,
  * `fill="none"` — paints nothing of its own: it takes its colour from the text, so the

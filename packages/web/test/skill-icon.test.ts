@@ -7,7 +7,11 @@
  * rejected; a clean line-art SVG passes through as-is (after trim).
  */
 import { describe, expect, it } from "vitest";
-import { sanitizeSkillIcon, iconPaintsItself } from "../src/features/skills/skill-icon";
+import {
+  sanitizeSkillIcon,
+  iconPaintsItself,
+  namespaceSvgIds,
+} from "../src/features/skills/skill-icon";
 
 const CLEAN =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">' +
@@ -30,6 +34,60 @@ describe("iconPaintsItself", () => {
   it("a picture path on this server paints itself; a fill=none attribute value does not count", () => {
     expect(iconPaintsItself("/api/plugins/registry/icon?name=x")).toBe(true);
     expect(iconPaintsItself('<svg fill="none"><path d="M0 0" /></svg>')).toBe(false);
+  });
+});
+
+describe("namespaceSvgIds", () => {
+  it("renames every id into the uid's namespace and rewrites the url(#…) references to it", () => {
+    const svg =
+      '<svg viewBox="0 0 20.5 20.5"><radialGradient id="a" cx="22.4" r="21.6">' +
+      '<stop stop-color="#7f52ff"/></radialGradient><path fill="url(#a)" d="M0 0"/></svg>';
+    expect(namespaceSvgIds(svg, "r7")).toBe(
+      svg.replaceAll('id="a"', 'id="r7-a"').replaceAll("url(#a)", "url(#r7-a)"),
+    );
+  });
+
+  it("two icons that share id names get distinct namespaces (the collision that killed Kotlin's gradient)", () => {
+    const csharp = '<svg><linearGradient id="a"><stop stop-color="#fff"/></linearGradient></svg>';
+    const kotlin =
+      '<svg><radialGradient id="a"><stop stop-color="#7f52ff"/></radialGradient><path fill="url(#a)"/></svg>';
+    const left = namespaceSvgIds(csharp, "r1");
+    const right = namespaceSvgIds(kotlin, "r2");
+    expect(left).toContain('id="r1-a"');
+    expect(right).toContain('id="r2-a"');
+    expect(right).toContain('fill="url(#r2-a)"');
+    expect(right).not.toContain("url(#r1-a)");
+  });
+
+  it("renames other id-bearers (clipPath/mask/filter) and their url references; quoted url forms too", () => {
+    const svg =
+      '<svg><clipPath id="b"><rect width="9"/></clipPath>' +
+      '<path clip-path="url(#b)"/><path mask="url(&quot;b&quot;)"/></svg>';
+    const out = namespaceSvgIds(svg, "r3");
+    expect(out).toContain('id="r3-b"');
+    expect(out).toContain('clip-path="url(#r3-b)"');
+  });
+
+  it("a quoted url(“#…”) form keeps its quotes (both sides rewritten)", () => {
+    const out = namespaceSvgIds('<svg><g id="a"/><path fill=\'url("#a")\'/></svg>', "r4");
+    expect(out).toContain('id="r4-a"');
+    expect(out).toContain('url("#r4-a")');
+  });
+
+  it("an id that is a prefix of another (b vs bc) does not shadow it", () => {
+    const svg = '<svg><g id="b"/><g id="bc"/><path fill="url(#bc)" stroke="url(#b)"/></svg>';
+    const out = namespaceSvgIds(svg, "r5");
+    expect(out).toContain('id="r5-b"');
+    expect(out).toContain('id="r5-bc"');
+    expect(out).toContain('fill="url(#r5-bc)"');
+    expect(out).toContain('stroke="url(#r5-b)"');
+  });
+
+  it("markup without ids is returned unchanged (the line-art common case)", () => {
+    expect(namespaceSvgIds(CLEAN, "r6")).toBe(CLEAN);
+    expect(namespaceSvgIds('<svg><path d="M0 0"/></svg>', "r6")).toBe(
+      '<svg><path d="M0 0"/></svg>',
+    );
   });
 });
 

@@ -28,6 +28,7 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import {
   compareVersions,
+  iconPaintsItself,
   normalizeVersion,
   readPackageCard,
   userAgent,
@@ -188,7 +189,13 @@ export function builtinPluginRegistry(
 /** The display fields an index entry may carry, which a package can also carry itself. */
 export type PluginDisplay = Pick<
   PluginIndexEntry,
-  "title" | "titleZh" | "descriptionZh" | "shortDescription" | "shortDescriptionZh" | "icon"
+  | "title"
+  | "titleZh"
+  | "descriptionZh"
+  | "shortDescription"
+  | "shortDescriptionZh"
+  | "icon"
+  | "iconPaints"
 >;
 
 /** An index entry's github channel, as the install face installs it: pinned bytes at a URL. */
@@ -362,8 +369,13 @@ export async function localPluginDisplay(
   if (card.descriptionZh !== undefined) display.descriptionZh = card.descriptionZh;
   if (card.shortDescription !== undefined) display.shortDescription = card.shortDescription;
   if (card.shortDescriptionZh !== undefined) display.shortDescriptionZh = card.shortDescriptionZh;
-  // No icon, or one that will not do: the card draws the puzzle piece.
-  if (icon !== undefined) display.icon = icon;
+  // No icon, or one that will not do: the card draws the puzzle piece. A safe icon goes out
+  // as a path on this server — the /:plugin/icon route serves its bytes; the page loads it
+  // as an image and never inlines the markup.
+  if (icon !== undefined) {
+    display.icon = `/api/plugins/${encodeURIComponent(name)}/icon`;
+    display.iconPaints = iconPaintsItself(icon);
+  }
   return display;
 }
 

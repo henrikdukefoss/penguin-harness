@@ -64,6 +64,7 @@ import {
   rowBuiltin,
   rowInstalledOnServer,
   rowIcon,
+  rowIconPaints,
   rowShortDescription,
   rowTitle,
   rowVersion,
@@ -459,6 +460,7 @@ export function PluginCard(props: PluginCardProps) {
         <div className="flex items-center gap-3">
           <SkillTile
             icon={rowIcon(row)}
+            iconPaints={rowIconPaints(row)}
             name={row.name}
             fallback={ICONS.puzzle}
             size={36}

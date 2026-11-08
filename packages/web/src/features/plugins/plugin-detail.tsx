@@ -67,6 +67,7 @@ import {
   rowDescription,
   rowHasDescription,
   rowIcon,
+  rowIconPaints,
   rowTitle,
   rowVersion,
   type PluginDetails,
@@ -281,6 +282,7 @@ export function PluginDetailSections({
       <div className="flex items-start gap-3">
         <SkillTile
           icon={rowIcon(row)}
+          iconPaints={rowIconPaints(row)}
           name={row.name}
           fallback={ICONS.puzzle}
           size={40}

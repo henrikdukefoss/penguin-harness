@@ -220,13 +220,18 @@ describe("skills api", () => {
       "software-engineering",
       "web-design",
     ]);
-    // The installed list likewise passes through the short description and the icon — the
-    // plugin's, written as icon.svg beside SKILL.md on install (a skill has none of its own).
+    // The installed list likewise passes through the short description, and the icon arrives
+    // as a path on this server — the plugin's, written as icon.svg beside SKILL.md on install
+    // (a skill has none of its own), served as image bytes and never as markup.
     const installed = body.skills.find((s) => s.name === "web-design")!;
     expect(installed.shortDescription).toBeTruthy();
     const pluginIcon = librarySkill("web-design")!.plugin.icon;
     expect(pluginIcon).toBeDefined();
-    expect(installed.icon).toBe(pluginIcon);
+    expect(installed.icon).toBe(
+      `/api/projects/${projectId}/agents/bare_agent/plugins/skills/web-design/icon`,
+    );
+    // The plugin's icon is line art (fill="none", stroke="currentColor"): the page tints it.
+    expect(installed.iconPaints).toBe(false);
 
     // The on-disk content matches the library's SKILL.md verbatim (including frontmatter),
     // and the icon beside it is the plugin's.
@@ -324,12 +329,15 @@ describe("skills api", () => {
     expect(body.skills.map((s) => s.name)).not.toContain("remote-claude-code");
     expect(body.skills.map((s) => s.name)).not.toContain("humanizer");
     // The installed list likewise passes through the Chinese and short descriptions
-    // (listInstalledSkills parses these from the on-disk frontmatter) and the icon each
-    // install wrote beside SKILL.md — its plugin's.
+    // (listInstalledSkills parses these from the on-disk frontmatter), and the icon each
+    // install wrote beside SKILL.md — its plugin's — arrives as a served path.
     for (const skill of body.skills) {
       expect(skill.shortDescription, skill.name).toBeTruthy();
       expect(skill.shortDescriptionZh, skill.name).toBeTruthy();
-      expect(skill.icon, skill.name).toBe(librarySkill(skill.name)!.plugin.icon);
+      expect(skill.icon, skill.name).toBe(
+        `/api/projects/${projectId}/agents/default_agent/plugins/skills/${encodeURIComponent(skill.name)}/icon`,
+      );
+      expect(skill.iconPaints, skill.name).toBeDefined();
     }
 
     // Manual install from the library still works for a preinstall:false skill.

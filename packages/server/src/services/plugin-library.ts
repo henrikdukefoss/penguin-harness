@@ -8,7 +8,7 @@
  * library types is withheld from the API until someone adds it here on purpose; skill bodies
  * and hook scripts never travel in a listing.
  */
-import { needsSignIn } from "@prismshadow/penguin-core";
+import { iconPaintsItself, needsSignIn } from "@prismshadow/penguin-core";
 import type {
   HookManifest,
   InstalledMcpServer,
@@ -45,7 +45,7 @@ export function resolveLibraryPlugins(
   });
 }
 
-/** A skill as the API describes it — the library side, the installed side and the directory side all carry these fields. `icon` travels when the caller passes one: installed lists do, the library listing does not (see toPluginItem). */
+/** A skill as the API describes it — the library side, the installed side and the directory side all carry these fields. `icon` does not travel through this projection: the routes that serve one hand the page a path instead (see installedSkillItem and the dir-skills route). */
 export function toSkillItem(skill: SkillMetadata & { icon?: string }): SkillMetadataItem {
   return {
     name: skill.name,
@@ -54,7 +54,6 @@ export function toSkillItem(skill: SkillMetadata & { icon?: string }): SkillMeta
     ...(skill.shortDescriptionZh !== undefined
       ? { shortDescriptionZh: skill.shortDescriptionZh }
       : {}),
-    ...(skill.icon !== undefined ? { icon: skill.icon } : {}),
     version: skill.version,
   };
 }
@@ -68,7 +67,7 @@ export function hookEvents(manifest: HookManifest): string[] {
   ];
 }
 
-/** An installed hook package as the API describes it: the manifest without its scripts, plus the icon installed beside it. */
+/** An installed hook package as the API describes it: the manifest without its scripts. Its icon travels as a served path (see the hooks route). */
 export function toHookItem(hook: HookManifest & { icon?: string }): HookItem {
   return {
     name: hook.name,
@@ -76,7 +75,6 @@ export function toHookItem(hook: HookManifest & { icon?: string }): HookItem {
     ...(hook.description_zh !== undefined ? { descriptionZh: hook.description_zh } : {}),
     version: hook.version,
     events: hookEvents(hook),
-    ...(hook.icon !== undefined ? { icon: hook.icon } : {}),
   };
 }
 
@@ -181,7 +179,12 @@ export function toPluginItem(plugin: LibraryPlugin): PluginItem {
       : {}),
     hooks: plugin.hooks ? hookEvents(plugin.hooks.manifest) : [],
     ...(plugin.hooks !== undefined ? { hookVersion: plugin.hooks.manifest.version } : {}),
-    ...(plugin.icon !== undefined ? { icon: plugin.icon } : {}),
+    ...(plugin.icon !== undefined
+      ? {
+          icon: `/api/plugins/${encodeURIComponent(plugin.name)}/icon`,
+          iconPaints: iconPaintsItself(plugin.icon),
+        }
+      : {}),
     ...(plugin.quickStart !== undefined ? { quickStart: plugin.quickStart } : {}),
     mcpServers: plugin.mcpServers.map(toPluginMcpServerItem),
   };

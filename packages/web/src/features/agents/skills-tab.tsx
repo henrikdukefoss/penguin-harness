@@ -210,7 +210,9 @@ export function SkillsTab({
             <ListRow
               key={skill.name}
               as="li"
-              leading={<SkillTile icon={skill.icon} name={skill.name} />}
+              leading={
+                <SkillTile icon={skill.icon} iconPaints={skill.iconPaints} name={skill.name} />
+              }
               title={
                 <span className="font-mono text-[length:var(--ui-text-code-size)] font-semibold">
                   {skill.name}

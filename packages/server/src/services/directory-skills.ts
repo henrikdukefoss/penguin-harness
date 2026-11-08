@@ -22,7 +22,7 @@
  */
 import fs from "node:fs/promises";
 import path from "node:path";
-import { parseSkillFrontmatter, PLUGIN_NAME_PATTERN } from "@prismshadow/penguin-core";
+import { isSafeIconSvg, parseSkillFrontmatter, PLUGIN_NAME_PATTERN, svgFromRoot } from "@prismshadow/penguin-core";
 import type { SkillMetadata } from "@prismshadow/penguin-core";
 import { HttpError } from "../http/errors.js";
 import {
@@ -50,8 +50,7 @@ export interface DirectorySkill extends SkillMetadata {
  * What discovery returns: everything a picker needs, plus the resolved directory so an install
  * can go back for the payload. Never serialized — the route projects through `toMetadataItem`.
  */
-export interface DirectorySkillEntry extends Omit<DirectorySkill, "files"> {
-  /** Absolute path of the Skill's own directory. */
+export interface DirectorySkillEntry extends Omit<DirectorySkill, "files"> {  /** Absolute path of the Skill's own directory. */
   abs: string;
 }
 
@@ -230,4 +229,22 @@ export async function resolveDirectorySkills(
       return { ...skill, ...(Object.keys(files).length > 0 ? { files } : {}) };
     }),
   );
+}
+
+/**
+ * The icon.svg of one discovered Skill, safe-read for serving: a regular file within the
+ * per-file cap, normalized to its root element and checked the way any icon this server
+ * serves is. Undefined when the Skill has no icon, or one that will not do. The import
+ * preview's listing hands the page a path to the dir-skills icon route with these same
+ * coordinates, and the page loads the image — it never inlines the markup.
+ */
+export async function readDirectorySkillIcon(
+  dir: string,
+  source: SkillSourceDir,
+  skill: string,
+): Promise<string | undefined> {
+  const text = await readSkillFile(path.join(dir, source, skill, "icon.svg"));
+  if (text === undefined) return undefined;
+  const svg = svgFromRoot(text);
+  return isSafeIconSvg(svg) ? svg : undefined;
 }

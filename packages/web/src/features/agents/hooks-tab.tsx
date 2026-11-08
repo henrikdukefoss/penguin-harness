@@ -208,6 +208,7 @@ export function HooksTab({
               >
                 <SkillTile
                   icon={hook.icon}
+                  iconPaints={hook.iconPaints}
                   name={hook.name}
                   fallback={ICONS.fishHook}
                   size={36}

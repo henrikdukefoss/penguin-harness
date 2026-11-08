@@ -4983,12 +4983,14 @@ export interface SkillMetadataItem {
   shortDescription?: string;
   shortDescriptionZh?: string;
   /**
-   * Raw icon.svg text from the installed skill directory: the plugin's icon for a library
-   * install (written beside SKILL.md at install time), a custom one for a user-authored skill.
-   * Only installed lists carry it — the library listing's skills share their plugin's icon,
-   * which the plugin item carries once. Absent, the frontend draws the book glyph.
+   * The installed skill's icon, as a path on this server
+   * (`GET /api/projects/:p/agents/:a/plugins/skills/:skill/icon`) the page loads as an
+   * image — the icon.svg copied beside SKILL.md at install time, served as bytes. Absent,
+   * the frontend draws the book glyph.
    */
   icon?: string;
+  /** True when the icon paints itself (a brand logo's fills or gradient); false — line art — and the page tints it inside the tile. Present only with `icon`. */
+  iconPaints?: boolean;
   /** The skill's own dated version (`YYYY.MM.DD.N`, frontmatter version; a copy installed before that spelling still carries `YYYY-MM-DD.N`); an empty string when the frontmatter carries none or a malformed one. */
   version: string;
 }
@@ -5003,8 +5005,10 @@ export interface HookItem {
   version: string;
   /** The hook points the package answers at, e.g. `["stop"]`. */
   events: string[];
-  /** The plugin's raw icon.svg, written beside the manifest at install time; absent when the plugin ships none (the frontend draws the hook glyph). */
+  /** The plugin's icon as a path on this server (`GET /api/projects/:p/agents/:a/hooks/:hook/icon`), served as image bytes; absent when the plugin ships none (the frontend draws the hook glyph). */
   icon?: string;
+  /** True when the icon paints itself (a brand logo's fills or gradient); false — line art — and the page tints it inside the tile. Present only with `icon`. */
+  iconPaints?: boolean;
 }
 
 /**
@@ -5041,8 +5045,10 @@ export interface PluginItem {
   hooks: string[];
   /** The hook package's own dated version (its hooks contribution's `version`, `YYYY.MM.DD.N`); absent without a hook package. */
   hookVersion?: string;
-  /** The plugin's raw icon SVG (`icon.svg` at the package root, or the card's `icon` — every built-in plugin ships one; an unsafe one is never sent), the icon of everything it ships; the frontend draws the puzzle-piece plugin glyph without it. */
+  /** The plugin's icon as a path on this server (`GET /api/plugins/:plugin/icon`, served as image bytes; `icon.svg` at the package root, or the card's `icon` — every built-in plugin ships one; an unsafe one is never served), the icon of everything it ships; the frontend draws the puzzle-piece plugin glyph without it. */
   icon?: string;
+  /** True when the icon paints itself (a brand logo's fills or gradient); false — line art — and the page tints it inside the tile. Present only with `icon`. */
+  iconPaints?: boolean;
   /** The demo the Plugins page's quick start pre-fills (the card's `quickStart`); absent = pre-select its first skill. */
   quickStart?: QuickStartItem;
   /** The MCP servers the plugin installs into an Agent's `tools.mcpServers` (its mcpServers contributions); `[]` without any. */
@@ -5233,14 +5239,20 @@ export interface PluginIndexEntry {
   shortDescription?: string;
   shortDescriptionZh?: string;
   /**
-   * The plugin's icon (optional; the card draws the puzzle piece without it). Two shapes
-   * reach this field: the raw SVG text of a package that is on this server (the listing
-   * fills it from the package's own icon.svg, over whatever the index row says), and —
-   * for a listed entry that is not here — an `https://` URL the server itself fetches,
-   * checks for a safe SVG and serves as text; a remote icon that is not such a URL is
-   * dropped.
+   * The plugin's icon (optional; the card draws the puzzle piece without it). In a listing
+   * response this is always a path on this server — `GET /api/plugins/registry/icon?name=…`
+   * for a listed entry read off its index, `GET /api/plugins/:plugin/icon` for a package on
+   * this machine — which the page loads as an image; the SVG's bytes never travel as markup
+   * and the page never inlines them. In an index *source* document the field is an `https://`
+   * URL the server itself fetches (a remote icon that is not such a URL is dropped).
    */
   icon?: string;
+  /**
+   * True when the icon paints itself — a brand logo's fills or gradient — so the page stands
+   * it unframed; false (line art) and the page tints it inside the row's tile. Present only
+   * with `icon`.
+   */
+  iconPaints?: boolean;
   /**
    * `https://` URL of the plugin's README.md, for a listed entry nobody installed: the
    * server fetches it when the detail dialog asks. Optional; an entry without one shows

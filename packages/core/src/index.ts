@@ -72,6 +72,7 @@ export { hasLibraryContributions, isLibraryPackage, libraryParts } from "./plugi
 export type { LibraryParts } from "./plugin/kinds.js";
 export {
   MAX_PLUGIN_ICON_BYTES,
+  iconPaintsItself,
   isSafeIconSvg,
   readPluginIcon,
   svgFromRoot,

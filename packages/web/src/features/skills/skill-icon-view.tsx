@@ -1,26 +1,26 @@
 /**
  * Skill, hook package and plugin icons. An icon belongs to a plugin: the library card and the
- * detail Modal show the plugin's own `icon.svg`, and an installed skill or hook package shows
- * the icon of the plugin it came from (written into its directory at install time). Where a
- * subject has no icon — a user-authored or zip-imported skill, an install older than the icon
- * copy, a custom plugin without an icon.svg — the mark falls back to one uniform glyph for its
- * kind: the book for a skill, the hook for a hook package, the puzzle piece for a plugin. The
- * caller names the kind through `fallback`; never a letter or a per-name mark.
+ * detail Modal show the plugin's own icon, and an installed skill or hook package shows the
+ * icon of the plugin it came from (written into its directory at install time). Where a subject
+ * has no icon — a user-authored or zip-imported skill, an install older than the icon copy, a
+ * custom plugin without an icon.svg — the mark falls back to one uniform glyph for its kind:
+ * the book for a skill, the hook for a hook package, the puzzle piece for a plugin. The caller
+ * names the kind through `fallback`; never a letter or a per-name mark.
  *
  * `SkillIcon` is the bare mark (inline beside a name: the composer's chips and pick list);
- * `SkillTile` is the tinted square the rows and cards lead with. A DTO icon (raw icon.svg) is
- * rendered inline once it passes sanitizeSkillIcon (stroke uses currentColor, following text
- * color).
+ * `SkillTile` is the tinted square the rows and cards lead with. An icon is a path on this
+ * server, drawn as an image: one that paints itself (a brand logo's fills or gradient, or a
+ * picture) stands unframed — `iconPaints` says so, the listing carries the verdict; line art
+ * is a CSS mask so the page's colour paints it, exactly as an inline stroke would have, and
+ * it sits in the tinted tile. Nothing is ever inlined: no `innerHTML`, no id collisions.
  */
-import { useId, useMemo } from "react";
+import type { CSSProperties } from "react";
 import { GlyphIcon } from "@prismshadow/penguin-ui";
 import { BOOK_ICON } from "../chat/skill-use";
-import { sanitizeSkillIcon, iconPaintsItself, namespaceSvgIds } from "./skill-icon";
+import { skillIconUrl } from "./skill-icon";
 
 /**
  * Per-name tile colors (soft tinted tile + colored line-art stroke, light/dark pairs).
- * Icons are stroke=currentColor line art, so the text color paints them; a curated palette
- * replaces the old theme-accent tile, which rendered every skill in one monochrome block.
  * Deterministic: name-hash into the palette (user-created skills get a stable color too),
  * with a few semantic overrides for built-ins where a hue plainly fits.
  */
@@ -35,6 +35,18 @@ const SKILL_TILE_COLORS = [
   "bg-teal-50 text-teal-600 dark:bg-teal-950/60 dark:text-teal-400",
 ] as const;
 
+/** The stroke colour a line-art icon is painted with inside its tile: the palette ink of the same index, as a background the mask reveals. */
+const SKILL_INK_COLORS = [
+  "bg-sky-600 dark:bg-sky-400",
+  "bg-emerald-600 dark:bg-emerald-400",
+  "bg-violet-600 dark:bg-violet-400",
+  "bg-amber-600 dark:bg-amber-400",
+  "bg-rose-600 dark:bg-rose-400",
+  "bg-cyan-600 dark:bg-cyan-400",
+  "bg-indigo-600 dark:bg-indigo-400",
+  "bg-teal-600 dark:bg-teal-400",
+] as const;
+
 /** Semantic hue overrides (palette indices) — e.g. the firecrawl flame is amber, not whatever the hash lands on. */
 const SKILL_COLOR_OVERRIDES: Record<string, number> = {
   firecrawl: 3,
@@ -44,77 +56,98 @@ const SKILL_COLOR_OVERRIDES: Record<string, number> = {
   "penguin-sdk": 0,
 };
 
-export function skillTileColor(name: string): string {
+export function skillPaletteIndex(name: string): number {
   const override = SKILL_COLOR_OVERRIDES[name];
-  if (override !== undefined) return SKILL_TILE_COLORS[override]!;
+  if (override !== undefined) return override;
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
-  return SKILL_TILE_COLORS[h % SKILL_TILE_COLORS.length]!;
+  return h % SKILL_TILE_COLORS.length;
 }
 
-/** The bare mark, inline: the sanitized svg at `size`, else the kind's glyph (`fallback`; the book unless the subject is not a skill). */
+export function skillTileColor(name: string): string {
+  return SKILL_TILE_COLORS[skillPaletteIndex(name)]!;
+}
+
+/** The mask's paint: the row's palette ink (the light/dark pair the tile's stroke colour pairs with). */
+export function skillTileInk(name: string): string {
+  return SKILL_INK_COLORS[skillPaletteIndex(name)]!;
+}
+
+/** The CSS that turns an icon URL into a silhouette the background colour paints: the SVG's own strokes and fills become the mask's alpha. */
+function maskStyle(url: string): CSSProperties {
+  const image = `url("${url}")`;
+  return {
+    maskImage: image,
+    WebkitMaskImage: image,
+    maskRepeat: "no-repeat",
+    WebkitMaskRepeat: "no-repeat",
+    maskPosition: "center",
+    WebkitMaskPosition: "center",
+    maskSize: "contain",
+    WebkitMaskSize: "contain",
+  };
+}
+
+/**
+ * The bare mark, inline: the icon as an image at `size` (a mark that paints itself), the same
+ * image as a mask in the text's own colour (line art — it inherits `currentColor` the way an
+ * inline stroke would), or the kind's glyph (`fallback`; the book unless the subject is not a
+ * skill).
+ */
 export function SkillIcon({
   icon,
+  iconPaints,
   fallback = BOOK_ICON,
   size = 20,
   className = "",
 }: {
   icon?: string;
+  /** Whether the icon paints itself (a brand logo's fills or gradient); line art is masked in the text's colour. */
+  iconPaints?: boolean;
   /** 24×24 line path drawn when there is no usable `icon`: the uniform mark of the subject's kind. */
   fallback?: string;
   size?: number;
   className?: string;
 }) {
-  const safe = sanitizeSkillIcon(icon);
-  // Every inline svg shares one document, so its internal ids (`<linearGradient id="a">`,
-  // referenced as `url(#a)`) must not collide across icons: they are renamed into this
-  // instance's namespace (useId, stripped to plain id characters). `uid` is stable for the
-  // instance's lifetime, so it can join the memo deps without breaking the identity rule
-  // (see test/inner-html-stability.test.ts).
-  const uid = useId().replace(/[^a-zA-Z0-9]/g, "");
-  // Held stable across renders: React compares this prop by object identity and re-sets
-  // `innerHTML` whenever it differs, so a literal in the JSX rebuilds the markup on every render
-  // (see test/inner-html-stability.test.ts).
-  const markup = useMemo(
-    () => (safe && !safe.startsWith("/") ? { __html: namespaceSvgIds(safe, uid) } : undefined),
-    [safe, uid],
-  );
-  if (safe?.startsWith("/")) {
-    // A picture is a path on this server, not markup: loaded by the page same-origin, never
-    // inlined and never fetched from the outside.
+  const url = skillIconUrl(icon);
+  if (url === null) return <GlyphIcon d={fallback} size={size} className={className} />;
+  if (iconPaints) {
     return (
       <img
-        src={safe}
+        src={url}
         alt=""
         style={{ width: size, height: size }}
         className={`block shrink-0 object-contain ${className}`}
       />
     );
   }
-  if (markup === undefined) return <GlyphIcon d={fallback} size={size} className={className} />;
   return (
     <span
       aria-hidden
-      style={{ width: size, height: size }}
-      className={`block shrink-0 [&>svg]:block [&>svg]:h-full [&>svg]:w-full ${className}`}
-      dangerouslySetInnerHTML={markup}
+      style={{ width: size, height: size, backgroundColor: "currentColor", ...maskStyle(url) }}
+      className={`block shrink-0 ${className}`}
     />
   );
 }
 
 /**
  * The tinted square a row or card leads with: the icon at `glyph` px inside a `size` px box in
- * the name's palette color, or the kind's glyph (`fallback`) when there is no usable icon.
+ * the name's palette color, or the kind's glyph (`fallback`) when there is no usable icon. A
+ * mark that paints itself stands alone — a tinted square behind it reads as a frame — so it
+ * takes the whole box unframed; line art keeps the tile, masked in the palette's ink.
  * Decorative — the name beside it is the carrier.
  */
 export function SkillTile({
   icon,
+  iconPaints,
   name,
   fallback = BOOK_ICON,
   size = 36,
   glyph = 20,
 }: {
   icon?: string;
+  /** Whether the icon paints itself (a brand logo's fills or gradient); line art is tinted inside the tile. */
+  iconPaints?: boolean;
   /** Names the tile's color. */
   name: string;
   /** 24×24 line path drawn without an icon: the book for a skill, the hook for a hook package, the puzzle piece for a plugin. */
@@ -124,12 +157,9 @@ export function SkillTile({
   /** Icon edge in px. */
   glyph?: number;
 }) {
-  // A mark that paints itself (a brand logo's fills, a served picture) stands alone — a
-  // tinted square behind it reads as a frame. Line art paints nothing of its own: the tile's
-  // tint is what colours it, so it stays in the tile, as does the bare fallback glyph.
-  const safe = sanitizeSkillIcon(icon);
-  if (safe !== null && iconPaintsItself(safe)) {
-    return <SkillIcon icon={icon} fallback={fallback} size={size} />;
+  const url = skillIconUrl(icon);
+  if (url !== null && iconPaints) {
+    return <SkillIcon icon={url} iconPaints size={size} />;
   }
   return (
     // ui-glass with the tile anatomy: a theme may frost the square in its own hue (the palette
@@ -140,7 +170,13 @@ export function SkillTile({
       style={{ width: size, height: size }}
       className={`ui-glass flex shrink-0 items-center justify-center rounded-lg ${skillTileColor(name)}`}
     >
-      <SkillIcon icon={icon} fallback={fallback} size={glyph} />
+      <SkillIcon
+        icon={icon}
+        iconPaints={iconPaints}
+        fallback={fallback}
+        size={glyph}
+        className={url !== null ? skillTileInk(name) : ""}
+      />
     </span>
   );
 }

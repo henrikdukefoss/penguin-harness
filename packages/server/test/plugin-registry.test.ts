@@ -15,9 +15,9 @@
  * - The HTTP registry fetches its index URL and runs the document through the same validator;
  *   an HTTP error, non-JSON and a malformed document fail it; a failed connection is tried
  *   again, an answer is not. No network: fetch is the suite's fetch fake.
- * - A remote entry never carries an icon (the page inlines it as SVG): the HTTP registry drops
- *   it and keeps the rest of the row, and so does the route for a document a previous App
- *   fetched and parked.
+ * - A remote entry never carries an icon as inline text (the page draws icons as images): the
+ *   HTTP registry drops it and keeps the rest of the row, and so does the route for a document a
+ *   previous App fetched and parked; the listing hands the page a path on this server instead.
  * - A published index may be slow or down without emptying the page: the cache and the
  *   tolerant merge beside the builtin catalogue.
  * - Nor without holding it: a document past its TTL is served at once while the refresh runs
@@ -388,6 +388,30 @@ async function shippedPrefix(
   return { dir, bases: [{ file: path.join(dir, "package.json"), builtin: true }] };
 }
 
+/**
+ * A prefix that holds every shipped package's package.json and icon.svg (no ifaces.json: the
+ * rows keep the index's text, and only the icon comes from the package). The bases a listing
+ * needs so a builtin row's icon goes out as the package's own served path.
+ */
+async function shippedIconBases(): Promise<() => PluginBase[]> {
+  const dir = await mkdtemp(path.join(tmpdir(), "penguin-shipped-icons-"));
+  await writeFile(
+    path.join(dir, "package.json"),
+    '{"name":"penguin-builtin-plugins","private":true}',
+  );
+  for (const pkg of packages.values()) {
+    const dest = path.join(dir, "node_modules", ...pkg.manifest.name.split("/"));
+    await mkdir(dest, { recursive: true });
+    await cp(path.join(PLUGINS_DIR, pkg.dir, "package.json"), path.join(dest, "package.json"));
+    try {
+      await cp(path.join(PLUGINS_DIR, pkg.dir, "icon.svg"), path.join(dest, "icon.svg"));
+    } catch {
+      // A package without an icon lists without one.
+    }
+  }
+  return () => [{ file: path.join(dir, "package.json"), builtin: true }];
+}
+
 describe("plugin readmes", () => {
   /**
    * The detail page's whole content. A listed entry with no readme renders an empty page,
@@ -513,14 +537,25 @@ describe("the registry routes", () => {
     await t.cleanup();
   });
 
-  it("requires auth, then serves the builtin index", async () => {
+  it("requires auth, then serves the builtin index, each row's icon as a served path", async () => {
     expect((await t.app.request("/api/plugins/registry")).status).toBe(401);
 
     const admin = await loginAdmin(t.app);
     const res = await apiClient(t.app, admin.cookie).get("/api/plugins/registry");
     expect(res.status).toBe(200);
     const body = (await res.json()) as PluginIndexResponse;
-    expect(body.plugins).toEqual(await builtinPluginRegistry().index());
+    // The registry's own rows carry the package's icon.svg text; the route hands the page a
+    // path on this server instead (the page loads the image, it never inlines the markup),
+    // with the paints verdict the framing follows.
+    const index = await builtinPluginRegistry().index();
+    expect(body.plugins).toHaveLength(index.length);
+    for (const [row, entry] of body.plugins.map((row, i) => [row, index[i]!] as const)) {
+      expect(row).toEqual({
+        ...entry,
+        icon: `/api/plugins/${encodeURIComponent(entry.name)}/icon`,
+        iconPaints: expect.any(Boolean),
+      });
+    }
   });
 
   it("requires auth, then serves a listed entry's readme from the package on this machine", async () => {
@@ -914,7 +949,7 @@ describe("the route's own merge", () => {
     expect(body.plugins.find((entry) => entry.name === published.name)).toEqual(published);
   });
 
-  it("fills a remote entry's card with the icon its URL serves, on a read after the fetch answers", async () => {
+  it("fills a remote entry's card with a path to the icon its URL serves, on a read after the fetch answers", async () => {
     const ICON = "https://assets.example/published/icon.svg";
     const SVG = '<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0"/></svg>';
     const remote = fakeFetch((call) => {
@@ -929,10 +964,14 @@ describe("the route's own merge", () => {
     const first = (await (await routes.request("/")).json()) as PluginIndexResponse;
     expect(first.plugins.find((entry) => entry.name === published.name)!.icon).toBeUndefined();
     const second = (await (await routes.request("/")).json()) as PluginIndexResponse;
-    expect(second.plugins.find((entry) => entry.name === published.name)!.icon).toBe(SVG);
+    const row = second.plugins.find((entry) => entry.name === published.name)!;
+    const expected = `/api/plugins/registry/icon?name=${encodeURIComponent(published.name)}`;
+    expect(row.icon).toBe(expected);
+    // Line art (no fill of its own): the page tints it, so the row says it does not paint.
+    expect(row.iconPaints).toBe(false);
     // An installed package's own icon wins over the fetched one: a package here whose
     // icon.svg differs from what the row's URL serves, so only the local one can answer.
-    const LOCAL_SVG = '<svg viewBox="0 0 24 24"><circle r="12"/></svg>';
+    const LOCAL_SVG = '<svg viewBox="0 0 24 24"><circle r="12" fill="#0ea5e9"/></svg>';
     const prefix = await mkdtemp(path.join(tmpdir(), "penguin-prefix-"));
     try {
       await writeFile(path.join(prefix, "package.json"), '{"name":"prefix","private":true}');
@@ -949,16 +988,17 @@ describe("the route's own merge", () => {
         bases: () => [{ file: path.join(prefix, "package.json"), builtin: false }],
       });
       const body = (await (await withLocal.request("/")).json()) as PluginIndexResponse;
-      // The package's own icon.svg, verbatim, not the row URL's SVG.
-      expect(body.plugins.find((entry) => entry.name === published.name)!.icon).toBe(
-        `${LOCAL_SVG}\n`,
-      );
+      // The package's own icon, from its own icon route — not the row URL's path.
+      const localRow = body.plugins.find((entry) => entry.name === published.name)!;
+      expect(localRow.icon).toBe(`/api/plugins/${encodeURIComponent(published.name)}/icon`);
+      // A fill beyond none: the mark paints itself and stands unframed.
+      expect(localRow.iconPaints).toBe(true);
     } finally {
       await rm(prefix, { recursive: true, force: true });
     }
   });
 
-  it("normalizes a URL-served icon that opens with an XML declaration to its <svg root", async () => {
+  it("serves a URL-fetched svg icon's bytes from the listing's path, normalized to its <svg root", async () => {
     const ICON = "https://assets.example/published/icon.svg";
     const SVG =
       '<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0"/></svg>';
@@ -972,11 +1012,16 @@ describe("the route's own merge", () => {
     });
     await routes.request("/");
     const second = (await (await routes.request("/")).json()) as PluginIndexResponse;
-    // The Web App inlines only markup that begins at `<svg`; the declaration is left behind
-    // the same way a package's own icon.svg is, so the URL-served icon still draws.
-    expect(second.plugins.find((entry) => entry.name === published.name)!.icon).toBe(
-      '<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0"/></svg>',
-    );
+    // The listing never sends the markup: the row carries a path, and the path's answer is
+    // the declaration-free bytes, `image/svg+xml`, nosniff, briefly cached.
+    const row = second.plugins.find((entry) => entry.name === published.name)!;
+    expect(row.icon).toBe(`/api/plugins/registry/icon?name=${encodeURIComponent(published.name)}`);
+    const res = await routes.request(`/icon?name=${encodeURIComponent(published.name)}`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/svg+xml");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(res.headers.get("cache-control")).toBe("private, max-age=300");
+    expect(await res.text()).toBe('<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0"/></svg>');
   });
 
   it("serves a row's image icon at a path on this server, and the picture itself from that path", async () => {
@@ -1004,9 +1049,9 @@ describe("the route's own merge", () => {
     expect(miss.status).toBe(404);
   });
 
-  it("inlines a row's icon whose URL serves image/svg+xml, read for its safe text", async () => {
+  it("gives a row whose URL serves image/svg+xml a path too — the page loads the image, never the markup", async () => {
     const ICON = "https://assets.example/published/icon.svg";
-    const SVG = '<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0"/></svg>';
+    const SVG = '<svg xmlns="http://www.w3.org/2000/svg"><path fill="#f05138" d="M0 0"/></svg>';
     const remote = fakeFetch((call) => {
       if (call.url === ICON)
         return new Response(SVG, { headers: { "content-type": "image/svg+xml" } });
@@ -1018,7 +1063,14 @@ describe("the route's own merge", () => {
     });
     await routes.request("/");
     const second = (await (await routes.request("/")).json()) as PluginIndexResponse;
-    expect(second.plugins.find((entry) => entry.name === published.name)!.icon).toBe(SVG);
+    const row = second.plugins.find((entry) => entry.name === published.name)!;
+    expect(row.icon).toBe(`/api/plugins/registry/icon?name=${encodeURIComponent(published.name)}`);
+    // A fill beyond none: the mark paints itself, so the page stands it unframed.
+    expect(row.iconPaints).toBe(true);
+    // The bytes are reachable same-origin from that path.
+    const res = await routes.request(`/icon?name=${encodeURIComponent(published.name)}`);
+    expect(res.headers.get("content-type")).toBe("image/svg+xml");
+    expect(await res.text()).toBe(SVG);
   });
 
   it("serves a remote entry's readme from the URL its row names", async () => {
@@ -1098,11 +1150,24 @@ describe("the route's own merge", () => {
             answer = resolve;
           }),
       );
-      const routes = pluginRegistryRoutes({ indexUrl: url, fetchImpl: remote.fetch });
+      const routes = pluginRegistryRoutes({
+        indexUrl: url,
+        fetchImpl: remote.fetch,
+        bases: await shippedIconBases(),
+      });
       const first = await read(routes);
-      expect(first.plugins).toEqual(await builtinPluginRegistry().index());
       expect(first.pending).toEqual([url]);
       expect(first.failures).toEqual([]);
+      // Builtin rows: the icons go out as served paths, never as the SVG text.
+      const index = await builtinPluginRegistry().index();
+      expect(first.plugins).toHaveLength(index.length);
+      for (const [row, entry] of first.plugins.map((row, i) => [row, index[i]!] as const)) {
+        expect(row).toEqual({
+          ...entry,
+          icon: `/api/plugins/${encodeURIComponent(entry.name)}/icon`,
+          iconPaints: expect.any(Boolean),
+        });
+      }
 
       answer(jsonResponse([published]));
       await vi.advanceTimersByTimeAsync(0); // the fetch lands in the cache
@@ -1116,8 +1181,21 @@ describe("the route's own merge", () => {
       const remote = fakeFetch(() => {
         throw fetchFailed("ETIMEDOUT");
       });
-      const routes = pluginRegistryRoutes({ indexUrl: url, fetchImpl: remote.fetch });
-      expect((await read(routes)).plugins).toEqual(await builtinPluginRegistry().index());
+      const routes = pluginRegistryRoutes({
+        indexUrl: url,
+        fetchImpl: remote.fetch,
+        bases: await shippedIconBases(),
+      });
+      const failed = await read(routes);
+      const index = await builtinPluginRegistry().index();
+      expect(failed.plugins).toHaveLength(index.length);
+      for (const [row, entry] of failed.plugins.map((row, i) => [row, index[i]!] as const)) {
+        expect(row).toEqual({
+          ...entry,
+          icon: `/api/plugins/${encodeURIComponent(entry.name)}/icon`,
+          iconPaints: expect.any(Boolean),
+        });
+      }
       // The fetch spends its attempts behind the answer.
       await vi.runAllTimersAsync();
       const fetched = remote.calls.length;
@@ -1134,10 +1212,19 @@ describe("the route's own merge", () => {
   });
 
   it("with no published source configured, lists the builtin entries alone", async () => {
-    const routes = pluginRegistryRoutes({ indexUrl: null });
+    const routes = pluginRegistryRoutes({ indexUrl: null, bases: await shippedIconBases() });
     const res = await routes.request("/");
     const body = (await res.json()) as PluginIndexResponse;
-    expect(body.plugins).toEqual(await builtinPluginRegistry().index());
+    // Icons go out as served paths, never as the SVG text.
+    const index = await builtinPluginRegistry().index();
+    expect(body.plugins).toHaveLength(index.length);
+    for (const [row, entry] of body.plugins.map((row, i) => [row, index[i]!] as const)) {
+      expect(row).toEqual({
+        ...entry,
+        icon: `/api/plugins/${encodeURIComponent(entry.name)}/icon`,
+        iconPaints: expect.any(Boolean),
+      });
+    }
     expect(body.failures).toEqual([]);
     expect(body.pending).toEqual([]);
   });
@@ -1199,7 +1286,9 @@ describe("the route's own merge", () => {
           descriptionZh: "一个示例插件。",
           shortDescription: "Demo.",
           shortDescriptionZh: "示例。",
-          icon: '<svg viewBox="0 0 24 24"></svg>\n',
+          // The package's own icon, from its own icon route (the page loads the bytes).
+          icon: `/api/plugins/${encodeURIComponent(installedHere.name)}/icon`,
+          iconPaints: false,
         },
         bare,
         elsewhere,

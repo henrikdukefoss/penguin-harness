@@ -1,11 +1,11 @@
 /**
  * What an index entry names at a URL: its icon and its readme. The index format carries
  * both as `https://` locations (see the index repository's docs/manifest.md), and a
- * deployment's server is the one that fetches them — the Web App renders an icon by
- * inlining SVG text and a readme as text, so the bytes have to pass through here first:
- * an icon that is not a plain SVG costs the icon, never the page, the same rule core's
- * reader applies to a package's own icon.svg, and a readme is capped like any fetched
- * document.
+ * deployment's server is the one that fetches them — the Web App draws an icon as an image
+ * (`<img>` or a CSS mask, never inline markup) and a readme as text, so the bytes have to
+ * pass through here first: an icon that is not a plain SVG costs the icon, never the page,
+ * the same rule core's reader applies to a package's own icon.svg, and a readme is capped
+ * like any fetched document.
  *
  * Nothing in the listing waits: an icon already in hand fills the entry's card at once,
  * one still out is started and answers on a later page load (`hydrate` starts them). The
@@ -16,6 +16,7 @@
  * URL reads again rather than serving the old bytes under the new address.
  */
 import {
+  iconPaintsItself,
   isSafeIconSvg,
   MAX_PLUGIN_ICON_BYTES,
   svgFromRoot,
@@ -34,15 +35,17 @@ function isHttpsUrl(value: unknown): value is string {
 
 export interface IndexMedia {
   /**
-   * The icon in hand for the entry's `icon` URL — fetched text that passed the SVG safety
-   * read — or undefined while a read is out (or ended in nothing).
-   */
-  inHandIcon(entry: PluginIndexEntry): string | undefined;
-  /**
-   * The picture in hand for the entry's `icon` URL — its bytes and content type, read by
-   * this server so the page loads the image from here, never from the outside.
+   * The icon in hand as image bytes — a picture under its own `Content-Type`, a safe SVG as
+   * `image/svg+xml` — or undefined while a read is out (or ended in nothing). The listing
+   * hands the page a path to the `/icon` route when this answers.
    */
   inHandImage(entry: PluginIndexEntry): { bytes: Uint8Array; type: string } | undefined;
+  /**
+   * Whether the icon in hand paints itself — a brand logo's fills or gradient, or a picture —
+   * so the page stands it unframed; false (line art) and the page tints it inside the tile.
+   * Undefined with no icon in hand.
+   */
+  inHandPainted(entry: PluginIndexEntry): boolean | undefined;
   /**
    * The readme at the entry's `readme` URL — or, for a Chinese reader, the `readmeZh` URL
    * when the entry names one — fetching what is not in hand; null when there is none to read.
@@ -52,10 +55,10 @@ export interface IndexMedia {
   hydrate(entries: readonly PluginIndexEntry[]): void;
 }
 
-/** What one URL said: the icon text once it passed the safety read, a picture this server
+/** What one URL said: a safe SVG (its text and whether it paints itself), a picture this server
  * serves onward (its `Content-Type` said `image/*` and not svg), the readme text, or nothing. */
 type Media =
-  | { kind: "icon"; text: string }
+  | { kind: "icon"; text: string; paints: boolean }
   | { kind: "icon-image"; bytes: Uint8Array; type: string }
   | { kind: "readme"; text: string }
   | { kind: "none" };
@@ -80,8 +83,9 @@ export function indexMedia({ fetchImpl = fetch }: { fetchImpl?: typeof fetch } =
     if (!res.ok) return { kind: "none" };
     // What the URL serves is its own metadata: a `Content-Type` of image other than svg is
     // a picture — the bytes are read here so the page loads the image from this server,
-    // never from the outside. Anything else that names an icon is markup the page inlines,
-    // read for its safe text.
+    // never from the outside. Anything else that names an icon is an SVG, read for its safe
+    // text and served on as `image/svg+xml` bytes — the page loads it as an image too, it
+    // never inlines the markup.
     const type = (res.headers.get("content-type") ?? "").toLowerCase();
     const size = Number(res.headers.get("content-length") ?? "");
     const max = kind === "icon" ? MAX_PLUGIN_ICON_BYTES : MAX_README_BYTES;
@@ -93,11 +97,12 @@ export function indexMedia({ fetchImpl = fetch }: { fetchImpl?: typeof fetch } =
     if (Number.isFinite(size) && size > max) return { kind: "none" };
     const text = await res.text().catch(() => null);
     if (text === null || text.length > max) return { kind: "none" };
-    // The Web App inlines only markup that begins at `<svg`, so an icon fetched over a URL
-    // is normalized to its root element the same way a package's own icon.svg is.
+    // An icon fetched over a URL is normalized to its root element the same way a package's
+    // own icon.svg is, and it travels as image bytes, so the same safety read applies.
     if (kind === "icon") {
       if (!isSafeIconSvg(text)) return { kind: "none" };
-      return { kind, text: svgFromRoot(text) };
+      const svg = svgFromRoot(text);
+      return { kind, text: svg, paints: iconPaintsItself(svg) };
     }
     return { kind, text };
   }
@@ -117,15 +122,23 @@ export function indexMedia({ fetchImpl = fetch }: { fetchImpl?: typeof fetch } =
   };
 
   return {
-    inHandIcon(entry) {
-      if (!isHttpsUrl(entry.icon)) return undefined;
-      const media = inHand.get(`icon|${entry.icon}`);
-      return media?.kind === "icon" ? media.text : undefined;
-    },
+    /** The icon in hand as image bytes: a picture as its own type arrived, a safe SVG as `image/svg+xml`. Undefined while a read is out (or ended in nothing). */
     inHandImage(entry) {
       if (!isHttpsUrl(entry.icon)) return undefined;
       const media = inHand.get(`icon|${entry.icon}`);
-      return media?.kind === "icon-image" ? { bytes: media.bytes, type: media.type } : undefined;
+      if (media?.kind === "icon-image") return { bytes: media.bytes, type: media.type };
+      if (media?.kind === "icon") {
+        return { bytes: Buffer.from(media.text, "utf8"), type: "image/svg+xml" };
+      }
+      return undefined;
+    },
+    /** Whether the icon in hand paints itself (a brand logo, a picture) — true for a picture by definition. Undefined with no icon in hand. */
+    inHandPainted(entry) {
+      if (!isHttpsUrl(entry.icon)) return undefined;
+      const media = inHand.get(`icon|${entry.icon}`);
+      if (media?.kind === "icon-image") return true;
+      if (media?.kind === "icon") return media.paints;
+      return undefined;
     },
     async readme(entry, lang) {
       const url = lang === "zh" ? (entry.readmeZh ?? entry.readme) : entry.readme;

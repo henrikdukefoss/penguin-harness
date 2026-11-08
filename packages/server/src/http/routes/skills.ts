@@ -36,7 +36,7 @@ export interface SkillsRouteDeps {
 }
 import { HttpError } from "../errors.js";
 import { badRequest, readJson, requireString, requireValidId } from "../validate.js";
-import { toSkillItem } from "../../services/plugin-library.js";
+import { installedSkillItem } from "./plugins.js";
 import {
   MAX_ARCHIVE_BYTES,
   MAX_ARCHIVE_FILES,
@@ -170,7 +170,9 @@ export function agentSkillsRoutes(deps: SkillsRouteDeps): Hono<AppEnv> {
     projectId: string,
     agentId: string,
   ): Promise<AgentSkillsResponse> => ({
-    skills: (await listInstalledSkills(deps.config.root, projectId, agentId)).map(toSkillItem),
+    skills: (await listInstalledSkills(deps.config.root, projectId, agentId)).map(
+      installedSkillItem(projectId, agentId),
+    ),
   });
 
   app.get("/", async (c) => {

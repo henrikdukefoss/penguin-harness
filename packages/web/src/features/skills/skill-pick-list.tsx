@@ -109,10 +109,12 @@ export function SkillPickList({
                 aria-pressed={on}
                 checked={on}
                 onSelect={() => onToggle(s.name)}
-                // Each row's icon (icon.svg, sanitized and inlined), else the kind's glyph.
+                // Each row's icon (a same-origin URL the server serves as bytes), else the
+                // kind's glyph.
                 glyph={
                   <SkillIcon
                     icon={s.icon}
+                    iconPaints={s.iconPaints}
                     fallback={s.fallbackIcon}
                     size={ICON_SIZE.inlineGlyph}
                     className="shrink-0 text-gray-400 dark:text-gray-500"

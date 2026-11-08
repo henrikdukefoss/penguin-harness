@@ -1,156 +1,42 @@
 /**
- * sanitizeSkillIcon unit tests: security checks before inline rendering of a
- * custom Skill icon (raw icon.svg content) — anything containing <script,
- * event attributes (on*=), foreignObject, or any href attribute (not limited
- * to xlink:, case-insensitive, quoted/unquoted forms) is rejected (falls back
- * to the default book icon); a non-<svg> root / missing content is also
- * rejected; a clean line-art SVG passes through as-is (after trim).
+ * skillIconUrl unit tests: the page never draws inline markup, so the only
+ * check left on the web side is the shape of the icon value — it must be a
+ * path on this server (same-origin, no scheme, no protocol-relative `//`, no
+ * whitespace or markup). Anything else returns null and the caller draws the
+ * kind's glyph.
  */
 import { describe, expect, it } from "vitest";
-import {
-  sanitizeSkillIcon,
-  iconPaintsItself,
-  namespaceSvgIds,
-} from "../src/features/skills/skill-icon";
+import { skillIconUrl } from "../src/features/skills/skill-icon";
 
-const CLEAN =
-  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">' +
-  '<path d="M4 4h16v16H4z" /></svg>';
-
-describe("iconPaintsItself", () => {
-  it("line art (fill=none, stroke=currentColor) stays in the tile", () => {
-    expect(iconPaintsItself(CLEAN)).toBe(false);
-    expect(iconPaintsItself('<svg><path d="M2.5 3h6" fill="none" /></svg>')).toBe(false);
-    expect(iconPaintsItself('<svg stroke="currentColor"><path d="M0 0" /></svg>')).toBe(false);
-  });
-
-  it("a brand logo paints itself: a fill beyond none, a gradient, an inline style fill", () => {
-    expect(iconPaintsItself('<svg><path fill="#f05138" d="M0 0" /></svg>')).toBe(true);
-    expect(iconPaintsItself('<svg><path fill="url(#a)" d="M0 0" /></svg>')).toBe(true);
-    expect(iconPaintsItself("<svg><radialGradient/></svg>")).toBe(true);
-    expect(iconPaintsItself('<svg><path style="fill:#00c4b3" d="M0 0" /></svg>')).toBe(true);
-  });
-
-  it("a picture path on this server paints itself; a fill=none attribute value does not count", () => {
-    expect(iconPaintsItself("/api/plugins/registry/icon?name=x")).toBe(true);
-    expect(iconPaintsItself('<svg fill="none"><path d="M0 0" /></svg>')).toBe(false);
-  });
-});
-
-describe("namespaceSvgIds", () => {
-  it("renames every id into the uid's namespace and rewrites the url(#…) references to it", () => {
-    const svg =
-      '<svg viewBox="0 0 20.5 20.5"><radialGradient id="a" cx="22.4" r="21.6">' +
-      '<stop stop-color="#7f52ff"/></radialGradient><path fill="url(#a)" d="M0 0"/></svg>';
-    expect(namespaceSvgIds(svg, "r7")).toBe(
-      svg.replaceAll('id="a"', 'id="r7-a"').replaceAll("url(#a)", "url(#r7-a)"),
-    );
-  });
-
-  it("two icons that share id names get distinct namespaces (the collision that killed Kotlin's gradient)", () => {
-    const csharp = '<svg><linearGradient id="a"><stop stop-color="#fff"/></linearGradient></svg>';
-    const kotlin =
-      '<svg><radialGradient id="a"><stop stop-color="#7f52ff"/></radialGradient><path fill="url(#a)"/></svg>';
-    const left = namespaceSvgIds(csharp, "r1");
-    const right = namespaceSvgIds(kotlin, "r2");
-    expect(left).toContain('id="r1-a"');
-    expect(right).toContain('id="r2-a"');
-    expect(right).toContain('fill="url(#r2-a)"');
-    expect(right).not.toContain("url(#r1-a)");
-  });
-
-  it("renames other id-bearers (clipPath/mask/filter) and their url references; quoted url forms too", () => {
-    const svg =
-      '<svg><clipPath id="b"><rect width="9"/></clipPath>' +
-      '<path clip-path="url(#b)"/><path mask="url(&quot;b&quot;)"/></svg>';
-    const out = namespaceSvgIds(svg, "r3");
-    expect(out).toContain('id="r3-b"');
-    expect(out).toContain('clip-path="url(#r3-b)"');
-  });
-
-  it("a quoted url(“#…”) form keeps its quotes (both sides rewritten)", () => {
-    const out = namespaceSvgIds('<svg><g id="a"/><path fill=\'url("#a")\'/></svg>', "r4");
-    expect(out).toContain('id="r4-a"');
-    expect(out).toContain('url("#r4-a")');
-  });
-
-  it("an id that is a prefix of another (b vs bc) does not shadow it", () => {
-    const svg = '<svg><g id="b"/><g id="bc"/><path fill="url(#bc)" stroke="url(#b)"/></svg>';
-    const out = namespaceSvgIds(svg, "r5");
-    expect(out).toContain('id="r5-b"');
-    expect(out).toContain('id="r5-bc"');
-    expect(out).toContain('fill="url(#r5-bc)"');
-    expect(out).toContain('stroke="url(#r5-b)"');
-  });
-
-  it("markup without ids is returned unchanged (the line-art common case)", () => {
-    expect(namespaceSvgIds(CLEAN, "r6")).toBe(CLEAN);
-    expect(namespaceSvgIds('<svg><path d="M0 0"/></svg>', "r6")).toBe(
-      '<svg><path d="M0 0"/></svg>',
-    );
-  });
-});
-
-describe("sanitizeSkillIcon", () => {
-  it("a clean SVG passes (returned as-is after trim so inline rendering inherits currentColor)", () => {
-    expect(sanitizeSkillIcon(CLEAN)).toBe(CLEAN);
-    expect(sanitizeSkillIcon(`\n  ${CLEAN}\n`)).toBe(CLEAN);
-  });
-
-  it("missing / empty string / whitespace falls back to null", () => {
-    expect(sanitizeSkillIcon(undefined)).toBeNull();
-    expect(sanitizeSkillIcon("")).toBeNull();
-    expect(sanitizeSkillIcon("   ")).toBeNull();
-  });
-
-  it("a non-<svg> root is rejected (including arbitrary HTML posing as text)", () => {
-    expect(sanitizeSkillIcon("<div>not svg</div>")).toBeNull();
-    expect(sanitizeSkillIcon("plain text")).toBeNull();
-    expect(sanitizeSkillIcon(`<img src=x>${CLEAN}`)).toBeNull();
-    // <svgfoo…> is not an <svg> root (the tag name must end with whitespace or >).
-    expect(sanitizeSkillIcon('<svgfoo viewBox="0 0 24 24"></svgfoo>')).toBeNull();
-  });
-
-  it("containing <script is rejected (case-insensitive)", () => {
-    expect(sanitizeSkillIcon("<svg><script>alert(1)</script></svg>")).toBeNull();
-    expect(sanitizeSkillIcon('<svg><SCRIPT href="x"/></svg>')).toBeNull();
-  });
-
-  it("event attributes (on*=) are rejected", () => {
-    expect(sanitizeSkillIcon('<svg onload="alert(1)"><path d="M0 0" /></svg>')).toBeNull();
-    expect(sanitizeSkillIcon('<svg><path d="M0 0" onclick="x()" /></svg>')).toBeNull();
-    expect(sanitizeSkillIcon('<svg><path d="M0 0" ONLOAD = "x()" /></svg>')).toBeNull();
-  });
-
-  it("foreignObject / xlink:href are rejected", () => {
-    expect(sanitizeSkillIcon("<svg><foreignObject><div>x</div></foreignObject></svg>")).toBeNull();
-    expect(sanitizeSkillIcon('<svg><use xlink:href="#evil" /></svg>')).toBeNull();
-  });
-
-  it("any href attribute is rejected (not just xlink:, case-insensitive, single/double/unquoted forms)", () => {
-    expect(
-      sanitizeSkillIcon('<svg><a href="javascript:alert(1)"><path d="M0 0" /></a></svg>'),
-    ).toBeNull();
-    expect(sanitizeSkillIcon('<svg><use HREF="#evil" /></svg>')).toBeNull();
-    expect(sanitizeSkillIcon("<svg><use href='#evil' /></svg>")).toBeNull();
-    expect(sanitizeSkillIcon("<svg><a href=javascript:alert(1)>x</a></svg>")).toBeNull();
-    expect(sanitizeSkillIcon('<svg><use HREF = "#evil" /></svg>')).toBeNull();
-  });
-
-  it("coordinates in path data are not false positives (stroke=none and d attributes with negatives/decimals still pass)", () => {
-    const icon =
-      '<svg viewBox="0 0 24 24"><path d="M2.5 3h6a4 4 0 0 1 4 4v14" fill="none" /></svg>';
-    expect(sanitizeSkillIcon(icon)).toBe(icon);
-  });
-
-  it("a picture path on this server passes; other shapes do not", () => {
+describe("skillIconUrl", () => {
+  it("a path on this server passes through (trimmed)", () => {
     const path = "/api/plugins/registry/icon?name=%40penguinharness%2Flanguage-typst";
-    expect(sanitizeSkillIcon(path)).toBe(path);
-    expect(sanitizeSkillIcon("/api/plugins/registry/icon?name=x<script>")).toBeNull();
-    expect(sanitizeSkillIcon("/api/plugins/registry/icon extra")).toBeNull();
-    expect(sanitizeSkillIcon("https://assets.example/p/icon.png")).toBeNull();
-    expect(sanitizeSkillIcon("//assets.example/p/icon.png")).toBeNull();
-    expect(sanitizeSkillIcon("http://assets.example/p/icon.png")).toBeNull();
-    expect(sanitizeSkillIcon("data:image/png;base64,iVBORw0KGgo=")).toBeNull();
+    expect(skillIconUrl(path)).toBe(path);
+    expect(skillIconUrl(`  ${path}  `)).toBe(path);
+    expect(skillIconUrl("/api/projects/p1/agents/a1/plugins/skills/x/icon")).toBe(
+      "/api/projects/p1/agents/a1/plugins/skills/x/icon",
+    );
+  });
+
+  it("missing / empty / whitespace-only falls back to null", () => {
+    expect(skillIconUrl(undefined)).toBeNull();
+    expect(skillIconUrl(null)).toBeNull();
+    expect(skillIconUrl("")).toBeNull();
+    expect(skillIconUrl("   ")).toBeNull();
+  });
+
+  it("no scheme, no protocol-relative, no foreign origins", () => {
+    expect(skillIconUrl("https://assets.example/p/icon.png")).toBeNull();
+    expect(skillIconUrl("http://assets.example/p/icon.png")).toBeNull();
+    expect(skillIconUrl("//assets.example/p/icon.png")).toBeNull();
+    expect(skillIconUrl("data:image/svg+xml,%3Csvg%3E")).toBeNull();
+    expect(skillIconUrl("javascript:alert(1)")).toBeNull();
+  });
+
+  it("no markup or whitespace smuggled into the path", () => {
+    expect(skillIconUrl("/api/x?name=y<script>")).toBeNull();
+    expect(skillIconUrl("/api/x?name=y<img src=x>")).toBeNull();
+    expect(skillIconUrl("/api/plugins/registry/icon extra")).toBeNull();
+    expect(skillIconUrl('<svg><path d="M0 0"/></svg>')).toBeNull();
   });
 });

@@ -25,6 +25,7 @@ import {
   hooksDir,
   listInstalledHooks,
   parsePluginVersion,
+  readPluginIcon,
   removeHook,
   replaceSkillDirectory,
 } from "@prismshadow/penguin-core";
@@ -33,6 +34,7 @@ import type { AgentHooksResponse, HookItem } from "../../api/types.js";
 import type { AppEnv } from "../../auth/middleware.js";
 import type { PluginsRouteDeps } from "./plugins.js";
 import { HttpError } from "../errors.js";
+import { iconFields, iconResponse } from "../icon-response.js";
 import { badRequest, readJson, requireString, requireValidId } from "../validate.js";
 import { toHookItem } from "../../services/plugin-library.js";
 import {
@@ -258,7 +260,16 @@ export function agentHooksRoutes(deps: PluginsRouteDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
   const installedItems = async (projectId: string, agentId: string): Promise<HookItem[]> =>
-    (await listInstalledHooks(deps.config.root, projectId, agentId)).map(toHookItem);
+    (await listInstalledHooks(deps.config.root, projectId, agentId)).map((hook) => {
+      const item = toHookItem(hook);
+      return {
+        ...item,
+        ...iconFields(
+          hook.icon,
+          `/api/projects/${projectId}/agents/${agentId}/hooks/${encodeURIComponent(hook.name)}/icon`,
+        ),
+      };
+    });
 
   /** The install criterion every per-package route shares, the one listInstalledHooks uses: hooks/<name>/hooks.json exists. Returns the package directory. */
   const requireInstalled = async (
@@ -282,6 +293,24 @@ export function agentHooksRoutes(deps: PluginsRouteDeps): Hono<AppEnv> {
     deps.access.requireProjectAccess(c.var.user.userId, projectId);
     await deps.agentConfigService.requireExists(projectId, agentId);
     return c.json({ hooks: await installedItems(projectId, agentId) } satisfies AgentHooksResponse);
+  });
+
+  // The hook package's icon — the icon.svg written beside the manifest at install time —
+  // served as image bytes. The listing hands the page this path; the page loads the image,
+  // it never inlines the markup. The same read a package's icon gets: normalized,
+  // safety-read, capped.
+  app.get("/:hook/icon", async (c) => {
+    const projectId = requireValidId(c, "projectId");
+    const agentId = requireValidId(c, "agentId");
+    deps.access.requireProjectAccess(c.var.user.userId, projectId);
+    await deps.agentConfigService.requireExists(projectId, agentId);
+    const name = requireValidId(c, "hook");
+    const dir = await requireInstalled(projectId, agentId, name);
+    const { icon } = readPluginIcon(dir);
+    if (icon === undefined) {
+      throw new HttpError(404, "icon_not_found", `Hook package ${name} carries no icon.svg`);
+    }
+    return iconResponse(c, icon);
   });
 
   // Install one package from an uploaded zip (member-level, like the skills archive route).

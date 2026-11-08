@@ -2062,7 +2062,14 @@ export function ChatInput({
         key: `skill:${name}`,
         label: name,
         mono: true,
-        glyph: <SkillIcon icon={meta?.icon} size={13} className="shrink-0 text-fg-muted" />,
+        glyph: (
+          <SkillIcon
+            icon={meta?.icon}
+            iconPaints={meta?.iconPaints}
+            size={13}
+            className="shrink-0 text-fg-muted"
+          />
+        ),
         ...(meta ? { tooltip: localizedShortText(locale, meta), tooltipExtra: true } : {}),
         removeLabel: `${S.chat.skillRemove} ${name}`,
       };

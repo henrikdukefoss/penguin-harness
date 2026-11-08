@@ -33,6 +33,7 @@
  */
 import { Hono } from "hono";
 import fs from "node:fs/promises";
+import path from "node:path";
 import {
   agentDir,
   McpServerNameTakenError,
@@ -45,6 +46,9 @@ import {
   listInstalledMcpServers,
   listInstalledSkills,
   libraryParts,
+  readPackageCard,
+  readPluginIcon,
+  skillsDir,
   readPackageJson,
   compareVersions,
   uninstallMcpServer,
@@ -100,6 +104,7 @@ export interface PluginsRouteDeps {
   library: PluginLibrary;
 }
 import { HttpError } from "../errors.js";
+import { iconFields, iconResponse } from "../icon-response.js";
 import { badRequest, optionalStringArray, readJson, requireValidId } from "../validate.js";
 import {
   pluginFiles,
@@ -164,6 +169,22 @@ export function pluginLibraryRoutes(library: PluginLibrary): Hono<AppEnv> {
     }
     return c.json({ name: pluginName, readme } satisfies PluginReadmeResponse);
   });
+  // The package's icon, served as image bytes (`image/svg+xml`): the listing hands the page
+  // a path here and the page loads the image — the SVG's text never travels as markup, the
+  // page never inlines it. The same read the library listing used (normalized to its root
+  // element, safety-read, capped); a package with no icon, or one that will not do, is 404.
+  app.get("/:plugin/icon", (c) => {
+    const pluginName = c.req.param("plugin");
+    const pkg = library.packageOf(pluginName);
+    if (pkg === undefined) {
+      throw new HttpError(404, "unknown_plugin", `Plugin is not in the library: ${pluginName}`);
+    }
+    const { icon } = readPackageCard(pkg.dir);
+    if (icon === undefined) {
+      throw new HttpError(404, "icon_not_found", `Plugin ${pluginName} ships no safe icon.svg`);
+    }
+    return iconResponse(c, icon);
+  });
   // The package as a zip — its directory as npm has it, without node_modules — which another
   // server's admin imports as it is. Any member: it is what the library already shows.
   app.get("/:plugin/archive", async (c) => {
@@ -196,8 +217,8 @@ export function agentPluginsRoutes(deps: PluginsRouteDeps): Hono<AppEnv> {
       listInstalledWorkbenches(root, projectId, agentId),
     ]);
     return c.json({
-      skills: skills.map(toSkillItem),
-      hooks: hooks.map(toHookItem),
+      skills: skills.map(installedSkillItem(projectId, agentId)),
+      hooks: hooks.map(installedHookItem(projectId, agentId)),
       mcpServers: servers.map(toAgentMcpServerItem),
       workbenches,
     } satisfies AgentPluginsInstallResponse);
@@ -237,15 +258,68 @@ export function agentPluginsRoutes(deps: PluginsRouteDeps): Hono<AppEnv> {
     return c.json(
       {
         workbenches,
-        skills: skills.map(toSkillItem),
-        hooks: hooks.map(toHookItem),
+        skills: skills.map(installedSkillItem(projectId, agentId)),
+        hooks: hooks.map(installedHookItem(projectId, agentId)),
         mcpServers: servers.map(toAgentMcpServerItem),
       } satisfies AgentPluginsInstallResponse,
       201,
     );
   });
 
+  // The icon an installed Skill carries — the icon.svg beside its SKILL.md (the plugin's
+  // icon for a library install, a custom one for a user-authored skill) — served as image
+  // bytes. The listing hands the page this path; the page loads the image, it never inlines
+  // the markup. The same read a package's icon gets: normalized, safety-read, capped.
+  app.get("/skills/:skill/icon", async (c) => {
+    const projectId = requireValidId(c, "projectId");
+    const agentId = requireValidId(c, "agentId");
+    deps.access.requireProjectAccess(c.var.user.userId, projectId);
+    await deps.agentConfigService.requireExists(projectId, agentId);
+    const skill = requireValidId(c, "skill");
+    const { icon } = readPluginIcon(
+      path.join(skillsDir(deps.config.root, projectId, agentId), skill),
+    );
+    if (icon === undefined) {
+      throw new HttpError(404, "icon_not_found", `Skill ${skill} carries no icon.svg`);
+    }
+    return iconResponse(c, icon);
+  });
+
   return app;
+}
+
+/**
+ * An installed Skill's listing item: its icon is a path on this server that serves the
+ * icon.svg beside its SKILL.md as image bytes — the plugin's icon for a library install, a
+ * custom one for a user-authored skill — never the SVG text itself; the page loads it as an
+ * image and never inlines the markup. `iconPaints` says whether the mark stands unframed
+ * (a brand logo) or the page tints it inside the tile (line art).
+ */
+export function installedSkillItem(projectId: string, agentId: string) {
+  return (skill: Awaited<ReturnType<typeof listInstalledSkills>>[number]) => {
+    const item = toSkillItem(skill);
+    return {
+      ...item,
+      ...iconFields(
+        skill.icon,
+        `/api/projects/${projectId}/agents/${agentId}/plugins/skills/${encodeURIComponent(skill.name)}/icon`,
+      ),
+    };
+  };
+}
+
+/** An installed hook package's listing item: the icon as a served path, exactly as a skill's. */
+function installedHookItem(projectId: string, agentId: string) {
+  return (hook: Awaited<ReturnType<typeof listInstalledHooks>>[number]) => {
+    const item = toHookItem(hook);
+    return {
+      ...item,
+      ...iconFields(
+        hook.icon,
+        `/api/projects/${projectId}/agents/${agentId}/hooks/${encodeURIComponent(hook.name)}/icon`,
+      ),
+    };
+  };
 }
 
 /** /api/projects/:p/agents/:a/mcp-servers: an Agent's MCP servers, listed and removed one by one (Project members). */
@@ -416,22 +490,24 @@ export function pluginRegistryRoutes(options: PluginRoutesOptions = {}): Hono<Ap
     // row says, so an installed package's card shows its icon and both
     // languages even where its index row carries neither.
     const here = bases();
-    // An entry that is not here draws its icon from the `https://` URL its row names: what
-    // is in hand fills the card at once — the safe SVG text, or a path on this server the
-    // page loads the picture from (the bytes were read here; the page never reaches the
-    // outside for an icon) — one still out answers on a later load.
+    // An entry that is not here draws its icon from the `https://` URL its row names: the
+    // server fetched it (a safe SVG or a picture), and the listing hands the page a path on
+    // this server that serves the bytes — the page loads the image from here, never from
+    // the outside, and never inlines the markup. One still out answers on a later load:
+    // its row's URL goes out as nothing (an outside URL is never the page's to load).
     media.hydrate(entries);
     const plugins = await Promise.all(
       entries.map(async (entry) => {
+        const { icon: _url, ...row } = entry;
         const display = await localPluginDisplay(entry.name, here);
         if (display.icon === undefined && entry.icon?.startsWith("https://")) {
-          if (media.inHandImage(entry) !== undefined) {
+          const painted = media.inHandPainted(entry);
+          if (media.inHandImage(entry) !== undefined && painted !== undefined) {
             display.icon = `/api/plugins/registry/icon?name=${encodeURIComponent(entry.name)}`;
-          } else {
-            display.icon = media.inHandIcon(entry);
+            display.iconPaints = painted;
           }
         }
-        return { ...entry, ...display };
+        return { ...row, ...display };
       }),
     );
     const body: PluginIndexResponse = { plugins, failures, pending };
@@ -514,6 +590,8 @@ export function pluginRegistryRoutes(options: PluginRoutesOptions = {}): Hono<Ap
     }
     return c.body(image.bytes as unknown as Uint8Array<ArrayBuffer>, 200, {
       "content-type": image.type,
+      "x-content-type-options": "nosniff",
+      "cache-control": "private, max-age=300",
     });
   });
   // A listed package on this server as a zip, for another server to import: the same listing

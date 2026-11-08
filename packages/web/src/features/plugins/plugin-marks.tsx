@@ -115,9 +115,14 @@ export function PluginTag({
   );
 }
 
-/** The raw icon.svg a row is drawn with, when it has one: the library plugin's, else the index entry's. */
+/** The icon a row is drawn with, when it has one: a path on this server that serves the image — the library plugin's, else the index entry's. */
 export function rowIcon(row: PluginRow): string | undefined {
   return row.library?.icon ?? row.module?.entry?.icon;
+}
+
+/** Whether the row's icon paints itself (a brand logo's fills or gradient) and stands unframed; line art is tinted inside the tile. */
+export function rowIconPaints(row: PluginRow): boolean | undefined {
+  return row.library?.iconPaints ?? row.module?.entry?.iconPaints;
 }
 
 /** The version a row shows: the plugin's npm version (the library's), else the index entry's. */

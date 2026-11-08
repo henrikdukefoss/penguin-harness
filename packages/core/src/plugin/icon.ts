@@ -1,13 +1,14 @@
 /**
- * A plugin's icon: an SVG inside its package, inlined by the Web App into every card and dialog
- * that shows the plugin and written beside every Skill and hook package it installs. Read only
- * when it is safe to inline; anything else costs the plugin its icon (the UI's puzzle glyph), never
- * the page its safety.
+ * A plugin's icon: an SVG inside its package, served by this server as `image/svg+xml` bytes and
+ * drawn by the Web App as an image (`<img>`, or a CSS mask where the page tints it) on every card
+ * and dialog that shows the plugin, and written beside every Skill and hook package it installs.
+ * Read only when it is safe to serve as an image; anything else costs the plugin its icon (the
+ * UI's puzzle glyph), never the page its safety.
  */
 import fs from "node:fs";
 import path from "node:path";
 
-/** The most an icon may weigh: it is inlined into every card and dialog that shows it. */
+/** The most an icon may weigh: it is served to every card and dialog that shows it. */
 export const MAX_PLUGIN_ICON_BYTES = 64 * 1024;
 
 /**
@@ -39,6 +40,23 @@ export function svgFromRoot(text: string): string {
 }
 
 /**
+ * True when the mark paints itself and stands unframed: a brand logo (a fill or gradient beyond
+ * line art). Line art — `stroke="currentColor"`, `fill="none"` — paints nothing of its own: the
+ * page tints it (a CSS mask in the row's palette colour), so it belongs in the tile. The two are
+ * disjoint in the wild (a logo carries fills, line art carries currentColor); when a mark manages
+ * both, its own colours win. The listing carries the verdict (`iconPaints`) so the page can frame
+ * the icon without reading its bytes.
+ */
+export function iconPaintsItself(svg: string): boolean {
+  if (/gradient/i.test(svg)) return true;
+  for (const m of svg.matchAll(/fill\s*=\s*"([^"]*)"/gi)) {
+    if (m[1]!.trim() !== "" && m[1]!.trim() !== "none") return true;
+  }
+  if (/style\s*=\s*"[^"]*fill\s*:\s*(?!none)[^";]+/i.test(svg)) return true;
+  return false;
+}
+
+/**
  * Whether an SVG may be inlined into the page as a plugin's icon: it begins with `<svg` (after
  * an optional XML declaration and whitespace) and holds nothing UNSAFE_SVG names.
  */
@@ -53,12 +71,12 @@ export function isSafeIconSvg(text: string): boolean {
  * there is one. Read only when the file stays inside the package (a symlink is not followed),
  * weighs at most MAX_PLUGIN_ICON_BYTES and passes isSafeIconSvg; otherwise no icon (the UI's
  * puzzle glyph), with a warning saying why. A package with no icon at all has none, silently. The
- * icon is the text from its `<svg` root on: the Web App inlines only markup that begins there, so
+ * icon is the text from its `<svg` root on: the server serves it as `image/svg+xml` bytes, so
  * an XML declaration the file opens with is left behind rather than costing the icon.
  */
 export function readPluginIcon(
   dir: string,
-  declared: string | undefined,
+  declared?: string,
 ): { icon?: string; warnings: string[] } {
   const rel = declared ?? "icon.svg";
   const key = declared !== undefined ? `card.icon (${declared})` : "icon.svg";

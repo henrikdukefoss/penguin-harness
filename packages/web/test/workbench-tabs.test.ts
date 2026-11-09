@@ -108,35 +108,33 @@ describe("workbenches with nothing to show", () => {
 });
 
 describe("the chat page under a workbench tab", () => {
-  it("does not paint what the page covers, so no dock layer shows through it", () => {
-    // The page lies over the chat at z-10 and the docks paint above that: the bottom dock's
-    // boundary handle (z-20) lit up across the page as a line that took the cursor and resized
-    // the hidden dock, and a fullscreen dock (z-40) lay over the page whole. So while the page
-    // is shown, what it covers stays mounted but hidden: the toolbar and the dock area.
-    const shown = "workflowTabs.activeTab !== null && projectId !== null && pageAgentId !== null";
-    const covered = `const coveredByWorkbench = ${shown} ? "invisible" : "";`;
-    // The split composition keeps the page-cover decision in the files that paint each region.
-    const page = readFileSync(
-      new URL("../src/features/chat/chat-page.tsx", import.meta.url),
+  it("keeps the workbench page in one owner, covering the chat by overlay", () => {
+    // The contributed session tab owns the strip and the frame: one useWorkbenchTabs instance,
+    // so the strip and what covers the page can never disagree. The overlay lies over the chat
+    // at z-10, so the toolbar and the dock area stay mounted underneath and no dock layer
+    // shows through; the toolbar and the body therefore read no workbench state at all.
+    const tab = readFileSync(
+      new URL("../src/features/workbenches/session-tab.tsx", import.meta.url),
       "utf8",
     ).replace(/\s+/g, " ");
-    expect(page).toContain(
-      `{${shown} && ( <div className="absolute inset-x-0 bottom-0 top-9 z-10">`,
+    expect(tab).toContain("useWorkbenchTabs(");
+    expect(tab).toContain("<WorkbenchTabStrip");
+    expect(tab).toContain(
+      '{workflowTabs.activeTab !== null && projectId !== null && pageAgentId !== null && ( <div className="absolute inset-x-0 bottom-0 top-9 z-10">',
     );
+    expect(tab).toContain("<WorkbenchFrame");
+    // No second workbench-state reader on the page: a second useWorkbenchTabs instance would
+    // keep its own active tab and desync from the strip.
     const toolbar = readFileSync(
       new URL("../src/features/chat/toolbar/main-chat-toolbar.tsx", import.meta.url),
       "utf8",
     ).replace(/\s+/g, " ");
-    expect(toolbar).toContain(covered);
-    expect(toolbar).toMatch(/\{selected && \( <div className=\{`[^`]*\$\{coveredByWorkbench\}`\}/);
-    expect(toolbar).toMatch(
-      /\{archivedRow && \( <div className=\{`[^`]*\$\{coveredByWorkbench\}`\}/,
-    );
+    expect(toolbar).not.toContain("workflowTabs");
     const body = readFileSync(
       new URL("../src/features/chat/body/main-chat-body.tsx", import.meta.url),
       "utf8",
     ).replace(/\s+/g, " ");
-    expect(body).toContain(covered);
-    expect(body).toMatch(/<div data-dock-area className=\{`[^`]*\$\{coveredByWorkbench\}`\}>/);
+    expect(body).not.toContain("workflowTabs");
+    expect(body).toContain("<div data-dock-area");
   });
 });

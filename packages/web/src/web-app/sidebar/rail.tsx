@@ -1,3 +1,4 @@
+import { useLocale } from "../../state/locale";
 import { sidebarDeps } from "./deps";
 import { currentModeIndex, sectionsIn } from "./modes";
 import { useMemo, useRef, useState } from "react";
@@ -19,7 +20,7 @@ import { latestConversation, withoutOrgSessions } from "../../lib/session-groupi
 import { NEW_CHAT_ICON, glyphOf } from "../../lib/nav-icons";
 import { pageTitle } from "../../lib/local-page-table";
 import { navKeysFor } from "./nav-state";
-import { navPagesOf, useWebAppPages } from "../index";
+import { navPagesOf, pageTitle, useWebAppPages } from "../index";
 import { useUpdateBadges } from "../../lib/use-update-badges";
 import { useAuth } from "../../state/auth";
 import { useProject } from "../../state/project";
@@ -119,7 +120,7 @@ export function CollapsedRail({ onExpand }: { onExpand: () => void }) {
             : [
                 {
                   key,
-                  to: `/${key}`,
+                  to: page.path,
                   // A page names itself in the interface's language (PageData.title / titleZh).
                   label: pageTitle(page, locale),
                   icon: glyphOf(page.icon ?? key),
